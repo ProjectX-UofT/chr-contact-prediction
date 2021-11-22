@@ -1,0 +1,8 @@
+{
+  "num_targets": 5,
+  "train_seqs": 7008,
+  "valid_seqs": 419,
+  "test_seqs": 413,
+  "seq_length": 1048576,
+  "target_length": 99681
+}
