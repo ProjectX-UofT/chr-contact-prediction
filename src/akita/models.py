@@ -7,32 +7,46 @@ import torch.nn as nn
 
 class ContactPredictor(nn.Module):
 
-    def __init__(self):
+    def __init__(
+            self,
+            seq_length: int = 1048576,
+            seq_depth: int = 4,
+            target_width: int = 512,
+            num_targets: int = 5
+    ):
         super().__init__()
 
-        self.seq_length = 1048576
-        self.seq_depth = 4
-        self.target_length = 99681
-        self.num_targets = 5
+        self.seq_length = seq_length
+        self.seq_depth = self.seq_depth
+        self.target_width = self.target_width
+        self.num_targets = self.num_targets
 
         # TODO: add layers here
 
     def forward(self, input_seqs):
-        assert input_seqs.shape[1:] == (self.seq_length, self.seq_depth)
-        contacts = torch.zeros((1, 99681, 5))
+        L, D = self.seq_length, self.seq_depth
+        W, C = self.target_width, self.num_targets
+
         # TODO: replace placeholder with stuff
-        assert contacts.shape[1:] == (self.target_length, self.num_targets)
+        assert input_seqs.shape[1:] == (L, D)
+        contacts = torch.zeros((1, 99681, 5))
+        assert contacts.shape[1:] == (W, W, C)
+
         return contacts
 
 
 # Pytorch Lightning wrapper
 class LitContactPredictor(pl.LightningModule):
 
-    def __init__(self, lr):
+    def __init__(
+            self,
+            model: ContactPredictor,
+            lr: float
+    ):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["model"])
 
-        self.model = ContactPredictor()
+        self.model = model
 
     def forward(self, input_seqs):
         return self.model(input_seqs)
