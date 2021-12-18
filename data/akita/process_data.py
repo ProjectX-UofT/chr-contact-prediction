@@ -58,7 +58,7 @@ def tfr_to_hdf5(split, dummy=False):
 
 
 if __name__ == "__main__":
-    dummy = True
-    tfr_to_hdf5(split="train", dummy=dummy)
-    tfr_to_hdf5(split="valid", dummy=dummy)
-    tfr_to_hdf5(split="test", dummy=dummy)
+    debug = True
+    tfr_to_hdf5(split="train", dummy=debug)
+    tfr_to_hdf5(split="valid", dummy=debug)
+    tfr_to_hdf5(split="test", dummy=debug)
