@@ -77,12 +77,13 @@ class ContactPredictor(nn.Module):
         self.num_targets = num_targets
 
         # TODO: add layers here
+        self.fc = nn.Linear(100, 2)
 
     def forward(self, input_seqs):
         L, D = self.seq_length, self.seq_depth
         W, C = self.target_width, self.num_targets
         assert input_seqs.shape[1:] == (L, D)
-        return torch.zeros(input_seqs.shape[0], W, W, C)
+        return torch.zeros(input_seqs.shape[0], W, W, C, requires_grad=True)
 
 
 # Pytorch Lightning wrapper
@@ -90,7 +91,7 @@ class LitContactPredictor(pl.LightningModule):
 
     @staticmethod
     def add_model_specific_args(parent_parser):
-        parser = ArgumentParser(parents=[parent_parser])
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--target_crop', type=int, default=32)
@@ -118,18 +119,24 @@ class LitContactPredictor(pl.LightningModule):
         self.lr = lr
 
         self.out_width = model.target_width - 2 * target_crop
+        self.triu_idxs = torch.triu_indices(self.out_width, self.out_width, diagonal_offset)
 
     def forward(self, input_seqs):
-        return self.model(input_seqs)
+        contacts = self.model(input_seqs)
+        boarder = self.target_crop
+        contacts = contacts[:, boarder:-boarder, boarder:-boarder, :]
+        return contacts[:, self.triu_idxs[0], self.triu_idxs[1], :]
 
     def training_step(self, batch, batch_idx):
         batch = self._stochastic_augment(batch)
         loss, batch_size = self._process_batch(batch)
         self.log('train_loss', loss, batch_size=batch_size)
+        return loss
 
     def validation_step(self, batch, batch_idx):
         loss, batch_size = self._process_batch(batch)
         self.log('val_loss', loss, batch_size=batch_size)
+        return loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -140,7 +147,7 @@ class LitContactPredictor(pl.LightningModule):
         shift = random.randrange(-self.augment_shift, self.augment_shift + 1)
 
         seqs, tgts = batch
-        if take_rc:
+        if self.augment_rc and take_rc:
             seqs = reverse_complement(seqs)
             tgts = reverse_triu(tgts, self.out_width, self.diagonal_offset)
         seqs = shift_pad(seqs, shift, pad=0.25)
