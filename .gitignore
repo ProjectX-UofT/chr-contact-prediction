@@ -132,3 +132,5 @@ dmypy.json
 *.tfr
 *.dat
 *.hdf5
+scripts/
+wandb/
