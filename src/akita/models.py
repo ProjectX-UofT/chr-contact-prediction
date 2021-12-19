@@ -17,11 +17,12 @@ class ContactPredictor(nn.Module):
         super().__init__()
 
         self.seq_length = seq_length
-        self.seq_depth = self.seq_depth
-        self.target_width = self.target_width
-        self.num_targets = self.num_targets
+        self.seq_depth = seq_depth
+        self.target_width = target_width
+        self.num_targets = num_targets
 
         # TODO: add layers here
+        
 
     def forward(self, input_seqs):
         L, D = self.seq_length, self.seq_depth
@@ -76,3 +77,10 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--lr', type=float)
         return parser
         # TODO: as more params are added to the constructor, update this
+
+if __name__ == "__main__":
+    seq_length = 10
+    seq_depth = 2
+    target_width = 2
+    num_targets = 2
+    cp = ContactPredictor(seq_length, seq_depth, target_width, num_targets)
