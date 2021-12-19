@@ -34,7 +34,7 @@ class HDF5SeqDataset(data.Dataset):
 
 class AkitaDataModule(pl.LightningDataModule):
 
-    def __init__(self, batch_size=2, num_workers=2):
+    def __init__(self, batch_size=2, num_workers=0):
         super().__init__()
         self.batch_size = batch_size
         self.num_workers = num_workers
