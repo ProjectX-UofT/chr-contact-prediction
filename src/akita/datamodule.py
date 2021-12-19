@@ -18,8 +18,8 @@ class HDF5SeqDataset(data.Dataset):
         return self.seqs.len()
 
     def __getitem__(self, idx):
-        seq = np.eye(4)[self.seqs[idx]]
-        tgt = self.tgts[idx]
+        seq = np.eye(4)[self.seqs[idx]].astype(np.float32)
+        tgt = self.tgts[idx].astype(np.float32)
         return seq, tgt
 
 
