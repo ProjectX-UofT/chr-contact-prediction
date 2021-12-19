@@ -1,9 +1,11 @@
 import functools
+import random
 from argparse import ArgumentParser
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 # =============================================================================
@@ -46,7 +48,10 @@ def _reverse_triu_index_perm(width, offset):
 def reverse_triu(trius, width, offset):
     assert offset > 0
     assert len(trius.shape) == 3
+
     perm = _reverse_triu_index_perm(width, offset)
+    assert len(perm) == trius.shape[1]
+
     return trius[:, perm, :]
 
 
@@ -76,13 +81,8 @@ class ContactPredictor(nn.Module):
     def forward(self, input_seqs):
         L, D = self.seq_length, self.seq_depth
         W, C = self.target_width, self.num_targets
-
-        # TODO: replace placeholder with stuff
         assert input_seqs.shape[1:] == (L, D)
-        contacts = torch.zeros((1, 99681, 5))
-        assert contacts.shape[1:] == (W, W, C)
-
-        return contacts
+        return torch.zeros(input_seqs.shape[0], W, W, C)
 
 
 # Pytorch Lightning wrapper
@@ -123,21 +123,32 @@ class LitContactPredictor(pl.LightningModule):
         return self.model(input_seqs)
 
     def training_step(self, batch, batch_idx):
-        batch = self._stochastic_shift_and_rc(batch)
-
-        loss = None
-        self.log('val_loss', loss)
+        batch = self._stochastic_augment(batch)
+        loss, batch_size = self._process_batch(batch)
+        self.log('train_loss', loss, batch_size=batch_size)
 
     def validation_step(self, batch, batch_idx):
-        # TODO: compute loss and other metrics
-        loss = None
-        self.log('val_loss', loss)
+        loss, batch_size = self._process_batch(batch)
+        self.log('val_loss', loss, batch_size=batch_size)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
 
-    def _stochastic_shift_and_rc(self, batch):
-        seq, tgt = batch
+    def _stochastic_augment(self, batch):
+        take_rc = bool(random.getrandbits(1))
+        shift = random.randrange(-self.augment_shift, self.augment_shift + 1)
 
-        return batch
+        seqs, tgts = batch
+        if take_rc:
+            seqs = reverse_complement(seqs)
+            tgts = reverse_triu(tgts, self.out_width, self.diagonal_offset)
+        seqs = shift_pad(seqs, shift, pad=0.25)
+        return seqs, tgts
+
+    def _process_batch(self, batch):
+        seqs, tgts = batch
+        preds = self(seqs)
+        loss = F.mse_loss(preds, tgts)
+        batch_size = tgts.shape[0] * tgts.shape[2]
+        return loss, batch_size
