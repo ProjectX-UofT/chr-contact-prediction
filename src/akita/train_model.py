@@ -1,36 +1,66 @@
-import models
-from pytorch_lightning import Trainer
+import argparse
+import pathlib
+
+import pytorch_lightning as pl
+import torch.cuda
+from pytorch_lightning.loggers import WandbLogger
+
+from src.akita.datamodule import AkitaDataModule
+from src.akita.models import LitContactPredictor, ContactPredictor
 
 
-class ModelTrainer:
-    def __init__(self, learning_rate=0.05):
-        self.learning_rate = learning_rate
-        self.contact_predictor = models.ContactPredictor()
-        self.lit_contact_predictor = models.LitContactPredictor(
-            self.contact_predictor, self.learning_rate)
-        self.model_trainer = None
-        # TODO: add data module stuff when ready
-        self.train_loader = None
-        self.val_loader = None
-        self.test_loader = None
+def train_main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--num_workers', type=int, default=2)
+    parser = LitContactPredictor.add_model_specific_args(parser)
+    args = parser.parse_args()
 
-    def train_model(self, auto_select_gpu=True, accelerator="gpu",
-                    auto_lr_find=False, enable_checkpointing=True):
-        self.model_trainer = Trainer(auto_select_gpu=auto_select_gpu,
-                                     accelerator=accelerator,
-                                     auto_lr_find=auto_lr_find,
-                                     enable_checkpointing=enable_checkpointing)
-        self.model_trainer.fit(self.lit_contact_predictor, self.train_loader)
+    # seed experiment
+    pl.seed_everything(seed=args.seed)
 
-    def validate_model(self):
-        return self.model_trainer.validate(self.lit_contact_predictor,
-                                           self.val_loader)
+    # construct datamodule
+    datamodule = AkitaDataModule(batch_size=args.batch_size, num_workers=args.num_workers)
 
-    def test_model(self):
-        return self.model_trainer.test(self.lit_contact_predictor,
-                                       self.test_loader)
+    # construct model
+    model = ContactPredictor()
+
+    lit_model = LitContactPredictor(
+        model=model,
+        augment_shift=args.augment_shift,
+        augment_rc=args.augment_rc,
+        target_crop=args.target_crop,
+        diagonal_offset=args.diagonal_offset,
+        lr=args.lr
+    )
+
+    # TODO: play with training, logging, callback, etc. parameters below
+    # TODO: I wasn't sure how to get it to checkpoint in a nice directory
+
+    # logging
+    save_dir = pathlib.Path(__file__).parents[2]
+    logger = WandbLogger(project="train_akita", save_dir=str(save_dir))
+
+    # callbacks
+    early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=12)
+    checkpointing = pl.callbacks.ModelCheckpoint()
+
+    # training
+    trainer = pl.Trainer(
+        callbacks=[early_stopping, checkpointing],
+        deterministic=True,
+        gpus=(1 if torch.cuda.is_available() else 0),
+        gradient_clip_val=10,
+        logger=logger,
+        log_every_n_steps=1,
+        enable_progress_bar=False
+    )
+
+    trainer.fit(lit_model, datamodule=datamodule)
+
+    return lit_model
 
 
 if __name__ == "__main__":
-    model_trainer = ModelTrainer()
-    model_trainer.train_model()
+    train_main()
