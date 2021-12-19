@@ -1,6 +1,7 @@
 import pathlib
 
 import h5py
+import numpy as np
 import pytorch_lightning as pl
 from torch.utils import data
 
@@ -17,7 +18,7 @@ class HDF5SeqDataset(data.Dataset):
         return self.seqs.len()
 
     def __getitem__(self, idx):
-        seq = self.seqs[idx]
+        seq = np.eye(4)[self.seqs[idx]]
         tgt = self.tgts[idx]
         return seq, tgt
 
