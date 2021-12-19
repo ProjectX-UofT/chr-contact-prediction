@@ -76,13 +76,32 @@ class ContactPredictor(nn.Module):
         self.target_width = target_width
         self.num_targets = num_targets
 
-        # TODO: add layers here
-        self.fc = nn.Linear(100, 2)
+        trunk = list()
+        self._add_conv_block(trunk, 4, 96, 11, 2)
+        for _ in range(10):
+            self._add_conv_block(trunk, 96, 96, 5, 2)
+        # TODO: in progress...
+        self.trunk = nn.Sequential(*trunk)
+
+    def _add_conv_block(self, trunk, in_channels, out_channels, kernel_size, pool_size):
+        conv_padding = (kernel_size - 1) // 2  # padding needed to maintain same size
+        return trunk.extend([
+            nn.Conv1d(in_channels, out_channels, kernel_size, padding=conv_padding),
+            nn.BatchNorm1d(out_channels, momentum=0.01),
+            nn.MaxPool1d(kernel_size=pool_size),
+            nn.ReLU()
+        ])
 
     def forward(self, input_seqs):
         L, D = self.seq_length, self.seq_depth
         W, C = self.target_width, self.num_targets
         assert input_seqs.shape[1:] == (L, D)
+
+        input_seqs = input_seqs.transpose(1, 2)
+        x = self.trunk(input_seqs)
+        print(x.shape)
+        exit()
+
         return torch.zeros(input_seqs.shape[0], W, W, C, requires_grad=True)
 
 
