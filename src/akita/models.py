@@ -1,16 +1,19 @@
 import functools
+import math
 import random
 from argparse import ArgumentParser
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torch.tensor as Tensor
 import torch.nn.functional as F
 
 
 # =============================================================================
 # Data Transforms
 # =============================================================================
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 
 def shift_pad(seqs, shift, pad=0.25):
@@ -58,6 +61,131 @@ def reverse_triu(trius, width, offset):
 # =============================================================================
 # Models
 # =============================================================================
+class ConvNet(nn.Module):
+    """
+    Convolutional neural network to pool large input sequences
+    """
+
+    def __init__(self, seq_length, seq_depth, target_width, num_targets):
+        super().__init__()
+
+        self.seq_length = seq_length
+        self.seq_depth = seq_depth
+        self.target_width = target_width
+        self.num_targets = num_targets
+
+        trunk = list()
+        self._add_conv_block(trunk, 4, 96, 11, 2)
+        for _ in range(10):
+            self._add_conv_block(trunk, 96, 96, 5, 2)
+        # TODO: in progress...
+        self.trunk = nn.Sequential(*trunk)
+
+    def _add_conv_block(self, trunk, in_channels, out_channels, kernel_size,
+                        pool_size):
+        conv_padding = (kernel_size - 1) // 2  # padding needed to maintain same size
+        return trunk.extend([
+            nn.Conv1d(in_channels, out_channels, kernel_size,
+                      padding=conv_padding),
+            nn.BatchNorm1d(out_channels, momentum=0.01),
+            nn.MaxPool1d(kernel_size=pool_size),
+            nn.ReLU()
+        ])
+
+    def forward(self, input_seqs):
+        L, D = self.seq_length, self.seq_depth
+        W, C = self.target_width, self.num_targets
+        assert input_seqs.shape[1:] == (L, D)
+
+        input_seqs = input_seqs.transpose(1, 2)
+        x = self.trunk(input_seqs)
+        print(x.shape)
+        exit()
+        return torch.zeros(input_seqs.shape[0], W, W, C, requires_grad=True)
+
+
+class ImageTransformer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.encoder = ImageTransformerEncoder()
+        # we may just need to run the nn in decoder config?
+        self.decoder = ImageTransformerDecoder()
+
+    def forward(self, pooled_rep, use_encoder=True):
+        '''
+        Inputs should be 512, 512, 5
+        ImageTransformer uses 256 d-dim embedding vectors per pixel <- we learn these
+
+        Outputs should be pixel values (width, length, 3 channels)
+        '''
+        encoded_input = self.encoder(pooled_rep)
+        decoded_input = self.decoder(
+            encoded_input) if use_encoder else self.decoder(pooled_rep)
+        return decoded_input
+
+
+class ImageTransformerEncoder(nn.Module):
+    def __init__(self, d_model, ntoken, nhead, d_hid, nlayers, dropout):
+        """
+        Paper has the arch as:
+        Embedding
+        Positional Encodings
+        Attention
+        Sampling
+        """
+        super().__init__()
+        self.positional_encoder = PositionalEncoder() # TODO: add params
+        encoder_layers = TransformerEncoderLayer(d_model, nhead, d_hid, dropout)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
+        self.encoder = nn.Embedding(ntoken, d_model)
+        self.d_model = d_model
+
+    def forward(self, X):
+        """
+        Transformer Encoders take X and output z
+        :param X:
+        :return:
+        """
+        z = self.encoder(X) * math.sqrt(self.d_model)
+        z = self.positional_encoder(z)
+        return self.transformer_encoder(z)
+
+
+class ImageTransformerDecoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, z):
+        """
+        Decoder takes z and outputs Y-hat
+        :param Z:
+        :return:
+        """
+        pass
+
+
+class PositionalEncoder(nn.Module):
+
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        # flatten vector
+        position = torch.arange(max_len).unsqueeze(1)
+        # check attention paper
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x: Tensor, shape [seq_len, batch_size, embedding_dim]
+        """
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
 
 
 class ContactPredictor(nn.Module):
@@ -75,34 +203,13 @@ class ContactPredictor(nn.Module):
         self.seq_depth = seq_depth
         self.target_width = target_width
         self.num_targets = num_targets
+        self.conv_net = ConvNet(seq_length, seq_depth, target_width,
+                                num_targets)
 
-        trunk = list()
-        self._add_conv_block(trunk, 4, 96, 11, 2)
-        for _ in range(10):
-            self._add_conv_block(trunk, 96, 96, 5, 2)
-        # TODO: in progress...
-        self.trunk = nn.Sequential(*trunk)
-
-    def _add_conv_block(self, trunk, in_channels, out_channels, kernel_size, pool_size):
-        conv_padding = (kernel_size - 1) // 2  # padding needed to maintain same size
-        return trunk.extend([
-            nn.Conv1d(in_channels, out_channels, kernel_size, padding=conv_padding),
-            nn.BatchNorm1d(out_channels, momentum=0.01),
-            nn.MaxPool1d(kernel_size=pool_size),
-            nn.ReLU()
-        ])
-
-    def forward(self, input_seqs):
-        L, D = self.seq_length, self.seq_depth
-        W, C = self.target_width, self.num_targets
-        assert input_seqs.shape[1:] == (L, D)
-
-        input_seqs = input_seqs.transpose(1, 2)
-        x = self.trunk(input_seqs)
-        print(x.shape)
-        exit()
-
-        return torch.zeros(input_seqs.shape[0], W, W, C, requires_grad=True)
+    def forward(self, input_seq):
+        pooled_representation = self.conv_net(input_seq)
+        pred_image = self.ImageTransformer(pooled_representation)
+        return pred_image
 
 
 # Pytorch Lightning wrapper
@@ -138,7 +245,8 @@ class LitContactPredictor(pl.LightningModule):
         self.lr = lr
 
         self.out_width = model.target_width - 2 * target_crop
-        self.triu_idxs = torch.triu_indices(self.out_width, self.out_width, diagonal_offset)
+        self.triu_idxs = torch.triu_indices(self.out_width, self.out_width,
+                                            diagonal_offset)
 
     def forward(self, input_seqs):
         contacts = self.model(input_seqs)
