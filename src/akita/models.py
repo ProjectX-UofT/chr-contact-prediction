@@ -13,7 +13,9 @@ import torch.nn.functional as F
 # =============================================================================
 # Data Transforms
 # =============================================================================
-from torch.nn import TransformerEncoder, TransformerEncoderLayer
+from torch.nn import TransformerDecoder, TransformerDecoderLayer, \
+    TransformerEncoder, \
+    TransformerEncoderLayer
 
 
 def shift_pad(seqs, shift, pad=0.25):
@@ -107,9 +109,10 @@ class ConvNet(nn.Module):
 class ImageTransformer(nn.Module):
     def __init__(self):
         super().__init__()
-        self.encoder = ImageTransformerEncoder()
+        self.encoder = self.ImageTransformerEncoder()
         # we may just need to run the nn in decoder config?
-        self.decoder = ImageTransformerDecoder()
+        self.decoder = self.ImageTransformerDecoder()
+        self.output_layer = nn.linear()  #TODO fill in the dimensions
 
     def forward(self, pooled_rep, use_encoder=True):
         '''
@@ -118,10 +121,11 @@ class ImageTransformer(nn.Module):
 
         Outputs should be pixel values (width, length, 3 channels)
         '''
-        encoded_input = self.encoder(pooled_rep)
-        decoded_input = self.decoder(
-            encoded_input) if use_encoder else self.decoder(pooled_rep)
-        return decoded_input
+        encoded_output = self.encoder(pooled_rep)
+        decoded_output = self.decoder(
+            encoded_output) if use_encoder else self.decoder(pooled_rep)
+        image_pred = self.output_layer(decoded_output)
+        return image_pred
 
 
 class ImageTransformerEncoder(nn.Module):
@@ -152,16 +156,20 @@ class ImageTransformerEncoder(nn.Module):
 
 
 class ImageTransformerDecoder(nn.Module):
-    def __init__(self):
+    def __init__(self, d_model, nhead, d_hid, dropout, nlayers):
         super().__init__()
+        self.dropout = nn.Dropout()
+        self.d_model = d_model
+        decoder_layers = TransformerDecoderLayer(d_model, nhead, d_hid, dropout)
+        self.transformer_decoder = TransformerDecoder(decoder_layers, nlayers)
 
     def forward(self, z):
         """
         Decoder takes z and outputs Y-hat
-        :param Z:
+        :param z:
         :return:
         """
-        pass
+        return self.transformer_decoder(z)
 
 
 class PositionalEncoder(nn.Module):
@@ -283,6 +291,18 @@ class LitContactPredictor(pl.LightningModule):
     def _process_batch(self, batch):
         seqs, tgts = batch
         preds = self(seqs)
-        loss = F.mse_loss(preds, tgts)
+        loss = torch.nn.CrossEntropyLoss(preds, tgts)
         batch_size = tgts.shape[0] * tgts.shape[2]
         return loss, batch_size
+
+
+    def reshape_output(self, network_output, length=512, width=512):
+        """
+        Create the predicted image for a single image (single sequence)
+        :param decoder_output:
+        :param length:
+        :param width:
+        :return:
+        """
+
+        return network_output
