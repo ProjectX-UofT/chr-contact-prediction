@@ -127,6 +127,33 @@ class ImageTransformer(nn.Module):
         image_pred = self.output_layer(decoded_output)
         return image_pred
 
+    def sample(self, logits, height, width, argmax=False):
+        sampled_image = []
+        if argmax:
+            return torch.argmax(logits, dim=-1)
+        else:
+            # iterate over all pixels
+            # here we suppose we have a matrix in the shape of:
+            # (height, width, num_channels, intensities), where num_channels = 3 and intensities = 256
+            for row in height:
+                row_pixels = []
+                for col in width:
+                    # for a channel of a specific pixel, iterate over the 3 intensity vectors
+                    # TODO: verify that the targets are formatted in RGB format
+                    pixel_values = []
+                    # sample from MLE fit categorical distributions for each intensity vector
+                    sample_r = torch.distributions.categorical.Categorical(logits=logits[row, col, 0, :]).sample()
+                    sample_g = torch.distributions.categorical.Categorical(logits=logits[row, col, 1, :]).sample()
+                    sample_b = torch.distributions.categorical.Categorical(logits=logits[row, col, 2, :]).sample()
+                    # each pixel is given as a nested list: [[r], [g], [b]]
+                    pixel_values.append([sample_r])
+                    pixel_values.append([sample_g])
+                    pixel_values.append([sample_b])
+                    # add to row_pixels
+                    row_pixels.append(pixel_values)
+                # append the row of pixels
+                sampled_image.append(row_pixels)
+            return torch.tensor(sampled_image)
 
 class ImageTransformerEncoder(nn.Module):
     def __init__(self, d_model, ntoken, nhead, d_hid, nlayers, dropout):
