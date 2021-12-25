@@ -9,14 +9,14 @@ import torch.nn as nn
 import torch.tensor as Tensor
 import torch.nn.functional as F
 
-
-# =============================================================================
-# Data Transforms
-# =============================================================================
 from torch.nn import TransformerDecoder, TransformerDecoderLayer, \
     TransformerEncoder, \
     TransformerEncoderLayer
 
+
+# =============================================================================
+# Data Transforms
+# =============================================================================
 
 def shift_pad(seqs, shift, pad=0.25):
     assert len(seqs.shape) == 3
@@ -85,7 +85,8 @@ class ConvNet(nn.Module):
 
     def _add_conv_block(self, trunk, in_channels, out_channels, kernel_size,
                         pool_size):
-        conv_padding = (kernel_size - 1) // 2  # padding needed to maintain same size
+        conv_padding = (
+                               kernel_size - 1) // 2  # padding needed to maintain same size
         return trunk.extend([
             nn.Conv1d(in_channels, out_channels, kernel_size,
                       padding=conv_padding),
@@ -94,7 +95,7 @@ class ConvNet(nn.Module):
             nn.ReLU()
         ])
 
-    def forward(self, input_seqs):
+    def forward(self, input_seqs, one_target=True):
         L, D = self.seq_length, self.seq_depth
         W, C = self.target_width, self.num_targets
         assert input_seqs.shape[1:] == (L, D)
@@ -103,60 +104,77 @@ class ConvNet(nn.Module):
         x = self.trunk(input_seqs)
         print(x.shape)
         exit()
-        return torch.zeros(input_seqs.shape[0], W, W, C, requires_grad=True)
+        return torch.zeros(input_seqs.shape[0], W, W, requires_grad=True) if \
+            one_target else \
+            torch.zeros(input_seqs.shape[0], W, W, C, requires_grad=True)
 
 
 class ImageTransformer(nn.Module):
-    def __init__(self):
+    def __init__(self,
+                 target_width,
+                 target_height,
+                 d_model,
+                 pooling_dim,
+                 nhead_enc,
+                 nhead_dec,
+                 nlayers_enc,
+                 nlayers_dec,
+                 d_hid_enc,
+                 d_hid_dec,
+                 dropout_enc,
+                 dropout_dec,
+                 emb_dim):
         super().__init__()
-        self.encoder = self.ImageTransformerEncoder()
+        self.d_hid_enc = d_hid_enc
+        self.d_hid_dec = d_hid_dec
+        self.d_model = d_model
+        self.pooling_dim = pooling_dim
+        self.nhead_enc = nhead_enc
+        self.nhead_dec = nhead_dec
+        self.dropout_enc = dropout_enc
+        self.dropout_dec = dropout_dec
+        self.emb_dim = emb_dim
+        self.encoder = self.ImageTransformerEncoder(d_model,
+                                                    pooling_dim,
+                                                    nhead_enc,
+                                                    d_hid_enc,
+                                                    nlayers_enc,
+                                                    dropout_enc, emb_dim)
         # we may just need to run the nn in decoder config?
-        self.decoder = self.ImageTransformerDecoder()
-        self.output_layer = nn.linear()  #TODO fill in the dimensions
+        self.decoder = self.ImageTransformerDecoder(d_model,
+                                                    nhead_dec,
+                                                    d_hid_dec,
+                                                    nlayers_dec, dropout_dec)
+        self.output_layer = nn.Linear(in_features=d_model, out_features=(
+            target_width, target_height, 3))  # TODO fill in the dimensions
 
-    def forward(self, pooled_rep, use_encoder=True):
+    def forward(self, pooled_rep, tgts, use_encoder=True,
+                transformer_decoder=True):
         '''
         Inputs should be 512, 512, 5
         ImageTransformer uses 256 d-dim embedding vectors per pixel <- we learn these
 
         Outputs should be pixel values (width, length, 3 channels)
         '''
-        encoded_output = self.encoder(pooled_rep)
-        decoded_output = self.decoder(
-            encoded_output) if use_encoder else self.decoder(pooled_rep)
-        image_pred = self.output_layer(decoded_output)
+        pooled_rep = torch.flatten(
+            pooled_rep)  # flatten CNN output to a sequence
+        X = self.encoder(pooled_rep)
+        if transformer_decoder:
+            X = self.decoder(
+                X, tgts) if use_encoder else self.decoder(pooled_rep, tgts)
+        image_pred = self.output_layer(X)
         return image_pred
 
-    def sample(self, logits, height, width, argmax=False):
-        sampled_image = []
-        if argmax:
-            return torch.argmax(logits, dim=-1)
-        else:
-            # iterate over all pixels
-            # here we suppose we have a matrix in the shape of:
-            # (height, width, num_channels, intensities), where num_channels = 3 and intensities = 256
-            for row in height:
-                row_pixels = []
-                for col in width:
-                    # for a channel of a specific pixel, iterate over the 3 intensity vectors
-                    # TODO: verify that the targets are formatted in RGB format
-                    pixel_values = []
-                    # sample from MLE fit categorical distributions for each intensity vector
-                    sample_r = torch.distributions.categorical.Categorical(logits=logits[row, col, 0, :]).sample()
-                    sample_g = torch.distributions.categorical.Categorical(logits=logits[row, col, 1, :]).sample()
-                    sample_b = torch.distributions.categorical.Categorical(logits=logits[row, col, 2, :]).sample()
-                    # each pixel is given as a nested list: [[r], [g], [b]]
-                    pixel_values.append([sample_r])
-                    pixel_values.append([sample_g])
-                    pixel_values.append([sample_b])
-                    # add to row_pixels
-                    row_pixels.append(pixel_values)
-                # append the row of pixels
-                sampled_image.append(row_pixels)
-            return torch.tensor(sampled_image)
 
 class ImageTransformerEncoder(nn.Module):
-    def __init__(self, d_model, ntoken, nhead, d_hid, nlayers, dropout):
+    def __init__(self,
+                 d_model,
+                 pooling_dimension,
+                 nhead,
+                 d_hid,
+                 nlayers,
+                 dropout,
+                 emb_dim):
         """
         Paper has the arch as:
         Embedding
@@ -165,10 +183,13 @@ class ImageTransformerEncoder(nn.Module):
         Sampling
         """
         super().__init__()
-        self.positional_encoder = PositionalEncoder() # TODO: add params
-        encoder_layers = TransformerEncoderLayer(d_model, nhead, d_hid, dropout)
+        self.positional_encoder = PositionalEncoder(d_model)  # TODO: add params
+        encoder_layers = TransformerEncoderLayer(d_model, nhead, d_hid, dropout,
+                                                 activation=nn.SiLU)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-        self.encoder = nn.Embedding(ntoken, d_model)
+        # the pooling dimension is the vocabulary size, and each vocab in the vocabulary gets an embedding of emb_dim
+        # pooling dimension should be the size of the output from CNN
+        self.encoder = nn.Embedding(pooling_dimension, emb_dim)
         self.d_model = d_model
 
     def forward(self, X):
@@ -183,25 +204,29 @@ class ImageTransformerEncoder(nn.Module):
 
 
 class ImageTransformerDecoder(nn.Module):
-    def __init__(self, d_model, nhead, d_hid, dropout, nlayers):
+    def __init__(self, d_model, nhead, d_hid, nlayers, dropout):
         super().__init__()
-        self.dropout = nn.Dropout()
+        self.dropout = dropout
         self.d_model = d_model
-        decoder_layers = TransformerDecoderLayer(d_model, nhead, d_hid, dropout)
+        self.positional_encoder = PositionalEncoder(d_model)  # TODO: add params
+        decoder_layers = TransformerDecoderLayer(d_model, nhead, d_hid, dropout,
+                                                 activation=nn.SiLU)
         self.transformer_decoder = TransformerDecoder(decoder_layers, nlayers)
 
-    def forward(self, z):
+    def forward(self, z, tgts):
         """
         Decoder takes z and outputs Y-hat
         :param z:
         :return:
         """
-        return self.transformer_decoder(z)
+        tgt_positional_encodings = self.positional_encoder(tgts)
+        return self.transformer_decoder(tgt_positional_encodings, z)
 
 
 class PositionalEncoder(nn.Module):
 
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+    def __init__(self, d_model: int, dropout: float = 0.1,
+                 max_len: int = 262144):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
         # flatten vector
@@ -230,7 +255,19 @@ class ContactPredictor(nn.Module):
             seq_length: int = 1048576,
             seq_depth: int = 4,
             target_width: int = 512,
-            num_targets: int = 5
+            target_height: int = 512,
+            num_targets: int = 5,
+            d_model: int = 512 * 512,
+            pooling_dim: int = 512 * 512,
+            nhead_enc: int = 8,
+            nhead_dec: int = 8,
+            nlayers_enc: int = 6,
+            nlayers_dec: int = 6,
+            d_hid_enc: int = 2048,
+            d_hid_dec: int = 2048,
+            dropout_enc: int = 0.1,
+            dropout_dec: int = 0.1,
+            emb_dim: int = 16
     ):
         super().__init__()
 
@@ -240,11 +277,55 @@ class ContactPredictor(nn.Module):
         self.num_targets = num_targets
         self.conv_net = ConvNet(seq_length, seq_depth, target_width,
                                 num_targets)
+        self.image_transformer = ImageTransformer(target_width,
+                                                  target_height,
+                                                  d_model,
+                                                  pooling_dim,
+                                                  nhead_enc,
+                                                  nhead_dec,
+                                                  nlayers_enc,
+                                                  nlayers_dec,
+                                                  d_hid_enc,
+                                                  d_hid_dec,
+                                                  dropout_enc,
+                                                  dropout_dec,
+                                                  emb_dim)
 
-    def forward(self, input_seq):
+    def forward(self, input_seq, tgts):
         pooled_representation = self.conv_net(input_seq)
-        pred_image = self.ImageTransformer(pooled_representation)
+        pred_image = self.image_transformer(pooled_representation, tgts)
         return pred_image
+
+    def sample(self, logits, height, width, argmax=False):
+        sampled_image = []
+        if argmax:
+            return torch.argmax(logits, dim=-1)
+        else:
+            # iterate over all pixels
+            # here we suppose we have a matrix in the shape of:
+            # (height, width, num_channels, intensities), where num_channels = 3 and intensities = 256
+            for row in height:
+                row_pixels = []
+                for col in width:
+                    # for a channel of a specific pixel, iterate over the 3 intensity vectors
+                    # TODO: verify that the targets are formatted in RGB format
+                    pixel_values = []
+                    # sample from MLE fit categorical distributions for each intensity vector
+                    sample_r = torch.distributions.categorical.Categorical(
+                        logits=logits[row, col, 0, :]).sample()
+                    sample_g = torch.distributions.categorical.Categorical(
+                        logits=logits[row, col, 1, :]).sample()
+                    sample_b = torch.distributions.categorical.Categorical(
+                        logits=logits[row, col, 2, :]).sample()
+                    # each pixel is given as a nested list: [[r], [g], [b]]
+                    pixel_values.append([sample_r])
+                    pixel_values.append([sample_g])
+                    pixel_values.append([sample_b])
+                    # add to row_pixels
+                    row_pixels.append(pixel_values)
+                # append the row of pixels
+                sampled_image.append(row_pixels)
+            return torch.tensor(sampled_image)
 
 
 # Pytorch Lightning wrapper
@@ -321,7 +402,6 @@ class LitContactPredictor(pl.LightningModule):
         loss = torch.nn.CrossEntropyLoss(preds, tgts)
         batch_size = tgts.shape[0] * tgts.shape[2]
         return loss, batch_size
-
 
     def reshape_output(self, network_output, length=512, width=512):
         """
