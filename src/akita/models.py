@@ -149,8 +149,8 @@ class ImageTransformer(nn.Module):
                                                     nhead_dec,
                                                     d_hid_dec,
                                                     nlayers_dec, dropout_dec)
-        self.output_layer = nn.Linear(in_features=d_model, out_features=(
-            target_width, target_height, 3))  # TODO fill in the dimensions
+        self.output_layer = nn.Linear(in_features=d_model, out_features=
+            target_width * target_height * 3  * 256)  # TODO fill in the dimensions
 
     def forward(self, pooled_rep, tgts, use_encoder=True,
                 transformer_decoder=True):
@@ -162,7 +162,7 @@ class ImageTransformer(nn.Module):
         '''
         pooled_rep = torch.flatten(
             pooled_rep)  # flatten CNN output to a sequence
-        X = self.encoder(pooled_rep)
+        X = self.encoder(pooled_rep) if use_encoder else pooled_rep
         if transformer_decoder:
             X = self.decoder(
                 X, tgts) if use_encoder else self.decoder(pooled_rep, tgts)
@@ -174,6 +174,26 @@ class ImageTransformer(nn.Module):
         self.encoder.weight.data.uniform_(-initrange, initrange)
         self.decoder.bias.data.zero_()
         self.decoder.weight.data.uniform_(-initrange, initrange)
+
+    def sample(self, image_width, image_height, targets, argmax):
+        pred_image = []
+        for row in range(image_height):
+            row_pixels = []
+            for col in range(image_width):
+                pixel = []
+                for channel in range(3):
+                    pixel_number = row*image_width + col
+                    infer_index = pixel_number + channel
+                    logits = self.forward(targets[:infer_index], pred_image, use_encoder=False)
+                    if argmax:
+                        prediction = argmax(logits)
+                    else:
+                        MLE_categorical =torch.distributions.Categorical(logits)
+                        prediction = MLE_categorical.sample()
+                    pixel.append([prediction])
+                row_pixels.append(pixel)
+            pred_image.append(row_pixels)
+        return pred_image
 
 class ImageTransformerEncoder(nn.Module):
     def __init__(self,
@@ -305,36 +325,9 @@ class ContactPredictor(nn.Module):
         pred_image = self.image_transformer(pooled_representation, tgts)
         return pred_image
 
-    def sample(self, logits, height, width, argmax=False):
-        sampled_image = []
-        if argmax:
-            return torch.argmax(logits, dim=-1)
-        else:
-            # iterate over all pixels
-            # here we suppose we have a matrix in the shape of:
-            # (height, width, num_channels, intensities), where num_channels = 3 and intensities = 256
-            for row in height:
-                row_pixels = []
-                for col in width:
-                    # for a channel of a specific pixel, iterate over the 3 intensity vectors
-                    # TODO: verify that the targets are formatted in RGB format
-                    pixel_values = []
-                    # sample from MLE fit categorical distributions for each intensity vector
-                    sample_r = torch.distributions.categorical.Categorical(
-                        logits=logits[row, col, 0, :]).sample()
-                    sample_g = torch.distributions.categorical.Categorical(
-                        logits=logits[row, col, 1, :]).sample()
-                    sample_b = torch.distributions.categorical.Categorical(
-                        logits=logits[row, col, 2, :]).sample()
-                    # each pixel is given as a nested list: [[r], [g], [b]]
-                    pixel_values.append([sample_r])
-                    pixel_values.append([sample_g])
-                    pixel_values.append([sample_b])
-                    # add to row_pixels
-                    row_pixels.append(pixel_values)
-                # append the row of pixels
-                sampled_image.append(row_pixels)
-            return torch.tensor(sampled_image)
+    def sample(self, height, width, argmax=False):
+        sampled_image = self.image_transformer.sample(height, width, argmax)
+        return torch.tensor(sampled_image)
 
 
 # Pytorch Lightning wrapper
