@@ -60,6 +60,10 @@ def reverse_triu(trius, width, offset):
     return trius[:, perm, :]
 
 
+def process_image(image, emb_dim, image_width, image_height):
+    embedding = nn.Embedding(image_width * image_height*3, emb_dim)
+    return embedding(image)
+
 # =============================================================================
 # Models
 # =============================================================================
@@ -165,6 +169,11 @@ class ImageTransformer(nn.Module):
         image_pred = self.output_layer(X)
         return image_pred
 
+    def init_weights(self) -> None:
+        initrange = 0.1
+        self.encoder.weight.data.uniform_(-initrange, initrange)
+        self.decoder.bias.data.zero_()
+        self.decoder.weight.data.uniform_(-initrange, initrange)
 
 class ImageTransformerEncoder(nn.Module):
     def __init__(self,
@@ -372,7 +381,7 @@ class LitContactPredictor(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         batch = self._stochastic_augment(batch)
-        loss, batch_size = self._process_batch(batch)
+        31, batch_size = self._process_batch(batch)
         self.log('train_loss', loss, batch_size=batch_size)
         return loss
 
