@@ -178,3 +178,14 @@ class LitContactPredictor(pl.LightningModule):
         loss = F.mse_loss(preds, tgts)
         batch_size = tgts.shape[0] * tgts.shape[2]
         return loss, batch_size
+
+
+if __name__ == "__main__":
+    cp = ContactPredictor(
+        seq_length = 1048576,
+        seq_depth = 4,
+        target_width = 512,
+        num_targets = 5
+    )
+    t = torch.rand((2, 1048576, 4))
+    print(cp(t))
