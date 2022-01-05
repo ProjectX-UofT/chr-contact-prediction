@@ -60,6 +60,32 @@ def reverse_triu(trius, width, offset):
 # =============================================================================
 
 
+class Trunk(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+        layers = list()
+        self._add_conv_block(layers, 4, 96, 11, 2)
+        for _ in range(10):
+            self._add_conv_block(layers, 96, 96, 5, 2)
+        # TODO: append transformer to layers
+        self._add_conv_block(layers, 96, 64, 5)
+        self.trunk = nn.Sequential(*layers)
+
+    def _add_conv_block(self, layers, in_channels, out_channels, kernel_size, pool_size=None):
+        padding = (kernel_size - 1) // 2  # padding needed to maintain same size
+        layers.append(nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding))
+        layers.append(nn.BatchNorm1d(out_channels, momentum=0.01))
+        if pool_size is not None:
+            layers.append(nn.MaxPool1d(kernel_size=pool_size))
+        layers.append(nn.ReLU())
+
+    def forward(self, input_seqs):
+        input_seqs = input_seqs.transpose(1, 2)
+        return self.trunk(input_seqs).transpose(1, 2)
+
+
 class ContactPredictor(nn.Module):
 
     def __init__(
@@ -76,28 +102,13 @@ class ContactPredictor(nn.Module):
         self.target_width = target_width
         self.num_targets = num_targets
 
-        trunk = list()
-        self._add_conv_block(trunk, 4, 96, 11, 2)
-        for _ in range(10):
-            self._add_conv_block(trunk, 96, 96, 5, 2)
-        # TODO: in progress...
-        self.trunk = nn.Sequential(*trunk)
-
-    def _add_conv_block(self, trunk, in_channels, out_channels, kernel_size, pool_size):
-        conv_padding = (kernel_size - 1) // 2  # padding needed to maintain same size
-        return trunk.extend([
-            nn.Conv1d(in_channels, out_channels, kernel_size, padding=conv_padding),
-            nn.BatchNorm1d(out_channels, momentum=0.01),
-            nn.MaxPool1d(kernel_size=pool_size),
-            nn.ReLU()
-        ])
+        self.trunk = Trunk()
 
     def forward(self, input_seqs):
         L, D = self.seq_length, self.seq_depth
         W, C = self.target_width, self.num_targets
         assert input_seqs.shape[1:] == (L, D)
 
-        input_seqs = input_seqs.transpose(1, 2)
         x = self.trunk(input_seqs)
         print(x.shape)
         exit()
