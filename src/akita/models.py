@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from src.akita.layers import AverageTo2D
+
 
 # =============================================================================
 # Data Transforms
@@ -55,14 +57,6 @@ def reverse_triu(trius, width, offset):
     return trius[:, perm, :]
 
 
-def average_to_2d(x):
-    b, w, d = x.shape
-    x_2d = x.tile([1, w, 1])
-    x_2d = x_2d.reshape(b, w, w, d)
-    x_2d = (x_2d + x_2d.transpose(1, 2)) / 2
-    return x_2d
-
-
 # =============================================================================
 # Models
 # =============================================================================
@@ -98,15 +92,10 @@ class HeadHIC(nn.Module):
 
     def __init__(self, target_width):
         super().__init__()
-
-        w = target_width
-        dists = torch.tensor([[[[abs(i - j)] for i in range(w)] for j in range(w)]])
-        self.dist_matrix = dists.float() / (w - 1)
+        self.one_to_two = AverageTo2D(target_width)
 
     def forward(self, z):
-        z = average_to_2d(z)
-        d = self.dist_matrix.tile([z.shape[0], 1, 1, 1])
-        z = torch.cat([z, d], dim=-1)
+        z = self.one_to_two(z)
         return z
 
 
