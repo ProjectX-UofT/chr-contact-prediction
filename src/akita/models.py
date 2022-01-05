@@ -55,6 +55,14 @@ def reverse_triu(trius, width, offset):
     return trius[:, perm, :]
 
 
+def average_to_2d(x):
+    b, w, d = x.shape
+    x_2d = x.tile([1, w, 1])
+    x_2d = x_2d.reshape(b, w, w, d)
+    x_2d = (x_2d + x_2d.transpose(1, 2)) / 2
+    return x_2d
+
+
 # =============================================================================
 # Models
 # =============================================================================
