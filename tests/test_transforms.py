@@ -1,11 +1,6 @@
 import torch
 
-from src.akita.models import (
-    shift_pad,
-    reverse_complement,
-    reverse_triu,
-    average_to_2d
-)
+from src.akita.models import shift_pad, reverse_complement, reverse_triu
 
 
 def test_shift_seq():
@@ -56,20 +51,8 @@ def test_reverse_triu():
     assert torch.equal(rev_triu_batch, reverse_triu(triu_batch, 10, 2))
 
 
-def test_average_to_2d():
-    x = torch.tensor([[[1, 2], [3, 4], [9, 10]]]).float()
-    x_2d = torch.tensor([[
-        [[1, 2], [2, 3], [5, 6]],
-        [[2, 3], [3, 4], [6, 7]],
-        [[5, 6], [6, 7], [9, 10]]
-    ]]).float()
-
-    assert torch.equal(x_2d, average_to_2d(x))
-
-
 if __name__ == "__main__":
     test_shift_seq()
     test_reverse_compliment()
     test_reverse_triu()
-    test_average_to_2d()
     print("Done.")
