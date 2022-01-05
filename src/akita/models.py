@@ -94,6 +94,22 @@ class Trunk(nn.Module):
         return self.trunk(input_seqs).transpose(1, 2)
 
 
+class HeadHIC(nn.Module):
+
+    def __init__(self, target_width):
+        super().__init__()
+
+        w = target_width
+        dists = torch.tensor([[[[abs(i - j)] for i in range(w)] for j in range(w)]])
+        self.dist_matrix = dists.float() / (w - 1)
+
+    def forward(self, z):
+        z = average_to_2d(z)
+        d = self.dist_matrix.tile([z.shape[0], 1, 1, 1])
+        z = torch.cat([z, d], dim=-1)
+        return z
+
+
 class ContactPredictor(nn.Module):
 
     def __init__(
