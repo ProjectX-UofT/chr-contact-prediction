@@ -90,10 +90,10 @@ class Trunk(nn.Module):
 
 class HeadHIC(nn.Module):
 
-    def __init__(self, target_width):
+    def __init__(self):
         super().__init__()
         self.one_to_two = AverageTo2D()
-        self.concat_dist = ConcatDist2D(target_width)
+        self.concat_dist = ConcatDist2D()
 
     def forward(self, z):
         z = self.concat_dist(self.one_to_two(z))

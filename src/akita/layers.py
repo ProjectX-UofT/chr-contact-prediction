@@ -13,14 +13,18 @@ class AverageTo2D(nn.Module):
 
 class ConcatDist2D(nn.Module):
 
-    def __init__(self, width):
+    def __init__(self):
         super().__init__()
-        self.width = width
+        self.dist_matrix = torch.zeros(1, 1, 1, 1)
 
+    def _cache_dist_matrix(self, width):
+        if self.dist_matrix.shape[1] == width:
+            return
         dists = torch.tensor([[[[abs(i - j)] for i in range(width)] for j in range(width)]])
         self.dist_matrix = dists.float() / (width - 1)
 
     def forward(self, z_2d):
+        self._cache_dist_matrix(z_2d.shape[1])
         d = self.dist_matrix.tile([z_2d.shape[0], 1, 1, 1])
         return torch.cat([z_2d, d], dim=-1)
 
