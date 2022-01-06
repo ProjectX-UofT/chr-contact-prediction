@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.akita.layers import AverageTo2D
+from src.akita.layers import AverageTo2D, ConcatDist2D
 
 
 # =============================================================================
@@ -92,10 +92,11 @@ class HeadHIC(nn.Module):
 
     def __init__(self, target_width):
         super().__init__()
-        self.one_to_two = AverageTo2D(target_width)
+        self.one_to_two = AverageTo2D()
+        self.concat_dist = ConcatDist2D(target_width)
 
     def forward(self, z):
-        z = self.one_to_two(z)
+        z = self.concat_dist(self.one_to_two(z))
         return z
 
 
