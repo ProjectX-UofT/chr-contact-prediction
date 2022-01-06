@@ -188,8 +188,8 @@ class ImageTransformer(nn.Module):
                     if argmax:
                         prediction = argmax(logits)
                     else:
-                        MLE_categorical =torch.distributions.Categorical(logits)
-                        prediction = MLE_categorical.sample()
+                        MLE_categorical =torch.distributions.Categorical(logits) # p(pixel_i | sequence_{<i}) ATCGCGC -> image shows interaction between last c and first c. p(pixel_i | sequence) ATCGCGC -> image
+                        prediction = MLE_categorical.sample() # CNN encoder -> Z -> decoder and then we take Z and train transformer?
                     pixel.append([prediction])
                 row_pixels.append(pixel)
             pred_image.append(row_pixels)
@@ -218,7 +218,7 @@ class ImageTransformerEncoder(nn.Module):
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
         # the pooling dimension is the vocabulary size, and each vocab in the vocabulary gets an embedding of emb_dim
         # pooling dimension should be the size of the output from CNN
-        self.encoder = nn.Embedding(pooling_dimension, emb_dim)
+        self.embedding = nn.Embedding(pooling_dimension, emb_dim)
         self.d_model = d_model
 
     def forward(self, X):
@@ -227,13 +227,13 @@ class ImageTransformerEncoder(nn.Module):
         :param X:
         :return:
         """
-        z = self.encoder(X) * math.sqrt(self.d_model)
+        z = self.embedding(X) * math.sqrt(self.d_model)
         z = self.positional_encoder(z)
         return self.transformer_encoder(z)
 
 
 class ImageTransformerDecoder(nn.Module):
-    def __init__(self, d_model, nhead, d_hid, nlayers, dropout):
+    def __init__(self, d_model, nhead, d_hid, nlayers, dropout, pooling_dimension, emb_dim):
         super().__init__()
         self.dropout = dropout
         self.d_model = d_model
@@ -241,6 +241,8 @@ class ImageTransformerDecoder(nn.Module):
         decoder_layers = TransformerDecoderLayer(d_model, nhead, d_hid, dropout,
                                                  activation=nn.SiLU)
         self.transformer_decoder = TransformerDecoder(decoder_layers, nlayers)
+        self.embedding = nn.Embedding(pooling_dimension, emb_dim)
+
 
     def forward(self, z, tgts):
         """
@@ -248,7 +250,8 @@ class ImageTransformerDecoder(nn.Module):
         :param z:
         :return:
         """
-        tgt_positional_encodings = self.positional_encoder(tgts)
+        embeddings = self.embedding(tgts[:, :-1])
+        tgt_positional_encodings = self.positional_encoder(embeddings)
         return self.transformer_decoder(tgt_positional_encodings, z)
 
 
@@ -374,7 +377,7 @@ class LitContactPredictor(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         batch = self._stochastic_augment(batch)
-        31, batch_size = self._process_batch(batch)
+        loss, batch_size = self._process_batch(batch)
         self.log('train_loss', loss, batch_size=batch_size)
         return loss
 
