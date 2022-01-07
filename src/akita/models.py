@@ -130,7 +130,9 @@ class HeadHIC(nn.Module):
         modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
         dilation = 1.0
         for _ in range(6):
-            modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
+            modules.append(
+                DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1,
+                                      True))
             dilation *= 1.75
         self.head = nn.Sequential(*modules)
 
@@ -144,8 +146,8 @@ class HeadHIC(nn.Module):
 class ContactPredictor(nn.Module):
 
     def __init__(self,
-        variational: bool = False
-        ):
+                 variational: bool = False
+                 ):
         super().__init__()
 
         self.variational = variational
@@ -168,7 +170,8 @@ class ContactPredictor(nn.Module):
         if flatten:
             y = y[:, 32:-32, 32:-32, :]
             y = y[:, self.triu_idxs[0], self.triu_idxs[1], :]
-        return self.fc_out(y) if not self.variational else self.fc_out(y), mu, log_var
+        return self.fc_out(y) if not self.variational else self.fc_out(
+            y), mu, log_var
 
 
 # Pytorch Lightning wrapper
