@@ -107,32 +107,24 @@ class HeadHIC(nn.Module):
 
 class ContactPredictor(nn.Module):
 
-    def __init__(
-            self,
-            seq_length: int = 1048576,
-            seq_depth: int = 4,
-            target_width: int = 512,
-            num_targets: int = 5
-    ):
+    def __init__(self):
         super().__init__()
 
-        self.seq_length = seq_length
-        self.seq_depth = seq_depth
-        self.target_width = target_width
-        self.num_targets = num_targets
-
         self.trunk = Trunk()
+        self.head = HeadHIC()
+        self.fc_out = nn.Linear(48, 5)
 
-    def forward(self, input_seqs):
-        L, D = self.seq_length, self.seq_depth
-        W, C = self.target_width, self.num_targets
-        assert input_seqs.shape[1:] == (L, D)
+        # target_crop = 32
+        # diagonal_offset = 2
+        self.triu_idxs = torch.triu_indices(448, 448, 2)
 
-        x = self.trunk(input_seqs)
-        print(x.shape)
-        exit()
-
-        return torch.zeros(input_seqs.shape[0], W, W, C, requires_grad=True)
+    def forward(self, input_seqs, flatten=False):
+        z = self.trunk(input_seqs)
+        y = self.head(z)
+        if flatten:
+            y = y[:, 32:-32, 32:-32, :]
+            y = y[:, self.triu_idxs[0], self.triu_idxs[1], :]
+        return self.fc_out(y)
 
 
 # Pytorch Lightning wrapper
@@ -143,8 +135,6 @@ class LitContactPredictor(pl.LightningModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--augment_rc', type=int, default=1)
-        parser.add_argument('--target_crop', type=int, default=32)
-        parser.add_argument('--diagonal_offset', type=int, default=2)
         parser.add_argument('--lr', type=float, default=1e-4)
         return parser
 
@@ -153,8 +143,6 @@ class LitContactPredictor(pl.LightningModule):
             model: ContactPredictor,
             augment_shift: int,
             augment_rc: bool,
-            target_crop: int,
-            diagonal_offset: int,
             lr: float
     ):
         super().__init__()
@@ -163,18 +151,10 @@ class LitContactPredictor(pl.LightningModule):
         self.model = model
         self.augment_shift = augment_shift
         self.augment_rc = augment_rc
-        self.target_crop = target_crop
-        self.diagonal_offset = diagonal_offset
         self.lr = lr
 
-        self.out_width = model.target_width - 2 * target_crop
-        self.triu_idxs = torch.triu_indices(self.out_width, self.out_width, diagonal_offset)
-
     def forward(self, input_seqs):
-        contacts = self.model(input_seqs)
-        boarder = self.target_crop
-        contacts = contacts[:, boarder:-boarder, boarder:-boarder, :]
-        return contacts[:, self.triu_idxs[0], self.triu_idxs[1], :]
+        return self.model(input_seqs, flatten=True)
 
     def training_step(self, batch, batch_idx):
         batch = self._stochastic_augment(batch)

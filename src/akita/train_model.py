@@ -30,8 +30,6 @@ def train_main():
         model=model,
         augment_shift=args.augment_shift,
         augment_rc=args.augment_rc,
-        target_crop=args.target_crop,
-        diagonal_offset=args.diagonal_offset,
         lr=args.lr
     )
 
