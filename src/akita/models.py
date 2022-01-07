@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.akita.layers import AverageTo2D, ConcatDist2D
+from src.akita.layers import AverageTo2D, ConcatDist2D, Symmetrize2D, Conv1dBlock
 
 
 # =============================================================================
@@ -67,21 +67,11 @@ class Trunk(nn.Module):
     def __init__(self):
         super().__init__()
 
-        layers = list()
-        self._add_conv_block(layers, 4, 96, 11, 2)
-        for _ in range(10):
-            self._add_conv_block(layers, 96, 96, 5, 2)
-        # TODO: append transformer to layers
-        self._add_conv_block(layers, 96, 64, 5)
+        layers = [Conv1dBlock(4, 96, 11, pool_size=2)]
+        layers += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
+        layers += []  # TODO: add transformer layer
+        layers += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*layers)
-
-    def _add_conv_block(self, layers, in_channels, out_channels, kernel_size, pool_size=None):
-        padding = (kernel_size - 1) // 2  # padding needed to maintain same size
-        layers.append(nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding))
-        layers.append(nn.BatchNorm1d(out_channels, momentum=0.01))
-        if pool_size is not None:
-            layers.append(nn.MaxPool1d(kernel_size=pool_size))
-        layers.append(nn.ReLU())
 
     def forward(self, input_seqs):
         input_seqs = input_seqs.transpose(1, 2)
@@ -94,6 +84,27 @@ class HeadHIC(nn.Module):
         super().__init__()
         self.one_to_two = AverageTo2D()
         self.concat_dist = ConcatDist2D()
+
+        layers = list()
+        self._add_symm_conv_block(layers, 65, 48, 3)
+        for _ in range(6):
+            pass
+
+        self.head = nn.Sequential(*layers)
+
+    def _add_symm_conv_block(
+            self, layers, in_channels, out_channels, kernel_size,
+            dilation=1, dropout=0.0, activation=True
+    ):
+        padding = (kernel_size - 1) // 2  # padding needed to maintain size
+        layers.append(nn.Conv2d(in_channels, out_channels, kernel_size,
+                                padding=padding, dilation=dilation))
+        layers.append(nn.BatchNorm2d(out_channels, momentum=0.01))
+        layers.append(Symmetrize2D())
+        if dropout > 0.0:
+            layers.append(nn.Dropout(p=dropout))
+        if activation:
+            layers.append(nn.ReLU())
 
     def forward(self, z):
         z = self.concat_dist(self.one_to_two(z))

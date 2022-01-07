@@ -33,3 +33,26 @@ class Symmetrize2D(nn.Module):
 
     def forward(self, x):
         return (x + x.transpose(1, 2)) / 2
+
+
+class Conv1dBlock(nn.Module):
+
+    def __init__(
+            self, in_channels, out_channels, kernel_size,
+            pool_size=1, activation=True
+    ):
+        super().__init__()
+        padding = (kernel_size - 1) // 2  # padding needed to maintain size
+
+        layers = [
+            nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding),
+            nn.BatchNorm1d(out_channels, momentum=0.01)
+        ]
+        if pool_size > 1:
+            layers.append(nn.MaxPool1d(kernel_size=pool_size))
+        if activation:
+            layers.append(nn.ReLU())
+        self.block = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.block(x)
