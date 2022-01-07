@@ -8,7 +8,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-from src.akita.layers import AverageTo2D, ConcatDist2D
+from src.akita.layers import (
+    AverageTo2D,
+    ConcatDist2D,
+    Conv1dBlock,
+    Conv2dBlock,
+    DilatedResConv2dBlock
+)
 
 
 # =============================================================================
@@ -103,23 +109,11 @@ class Trunk(nn.Module):
     def __init__(self):
         super().__init__()
 
-        layers = list()
-        self._add_conv_block(layers, 4, 96, 11, 2)
-        for _ in range(10):
-            self._add_conv_block(layers, 96, 96, 5, 2)
-        # TODO: append transformer to layers
-        self._add_conv_block(layers, 96, 64, 5)
-        self.trunk = nn.Sequential(*layers)
-
-    def _add_conv_block(self, layers, in_channels, out_channels, kernel_size,
-                        pool_size=None):
-        padding = (kernel_size - 1) // 2  # padding needed to maintain same size
-        layers.append(
-            nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding))
-        layers.append(nn.BatchNorm1d(out_channels, momentum=0.01))
-        if pool_size is not None:
-            layers.append(nn.MaxPool1d(kernel_size=pool_size))
-        layers.append(nn.ReLU())
+        modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
+        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
+        modules += []  # TODO: add transformer layer
+        modules += [Conv1dBlock(96, 64, 5)]
+        self.trunk = nn.Sequential(*modules)
 
     def forward(self, input_seqs):
         input_seqs = input_seqs.transpose(1, 2)
@@ -133,47 +127,48 @@ class HeadHIC(nn.Module):
         self.one_to_two = AverageTo2D()
         self.concat_dist = ConcatDist2D()
 
+        modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
+        dilation = 1.0
+        for _ in range(6):
+            modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
+            dilation *= 1.75
+        self.head = nn.Sequential(*modules)
+
     def forward(self, z):
         z = self.concat_dist(self.one_to_two(z))
-        return z
+        z = torch.permute(z, [0, 3, 1, 2])
+        y = self.head(z)
+        return torch.permute(y, [0, 2, 3, 1])
 
 
 class ContactPredictor(nn.Module):
 
-    def __init__(
-            self,
-            seq_length: int = 1048576,
-            seq_depth: int = 4,
-            target_width: int = 512,
-            num_targets: int = 5,
-            variational: bool = False
-    ):
+    def __init__(self,
+        variational: bool = False
+        ):
         super().__init__()
 
-        self.seq_length = seq_length
-        self.seq_depth = seq_depth
-        self.target_width = target_width
-        self.num_targets = num_targets
         self.variational = variational
 
         self.trunk = Trunk()
+        self.head = HeadHIC()
+        self.fc_out = nn.Linear(48, 5)
         self.variational_layer = VariationalLayer(variational, input_dim=64,
                                                   output_dim=64)
 
-    def forward(self, input_seqs):
-        L, D = self.seq_length, self.seq_depth
-        W, C = self.target_width, self.num_targets
-        assert input_seqs.shape[1:] == (L, D)
+        # target_crop = 32
+        # diagonal_offset = 2
+        self.triu_idxs = torch.triu_indices(448, 448, 2)
 
-        x = self.trunk(input_seqs)
-        # print(x.shape)
-        # exit()
-
+    def forward(self, input_seqs, flatten=False):
+        z = self.trunk(input_seqs)
         if self.variational:
-            z, mu, log_var = self.variational_layer(x)
-
-        return torch.zeros(input_seqs.shape[0], W, W, C,
-                           requires_grad=True)
+            z, mu, log_var = self.variational_layer(z)
+        y = self.head(z)
+        if flatten:
+            y = y[:, 32:-32, 32:-32, :]
+            y = y[:, self.triu_idxs[0], self.triu_idxs[1], :]
+        return self.fc_out(y) if not self.variational else self.fc_out(y), mu, log_var
 
 
 # Pytorch Lightning wrapper
@@ -184,8 +179,6 @@ class LitContactPredictor(pl.LightningModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--augment_rc', type=int, default=1)
-        parser.add_argument('--target_crop', type=int, default=32)
-        parser.add_argument('--diagonal_offset', type=int, default=2)
         parser.add_argument('--lr', type=float, default=1e-4)
         parser.add_argument('--variational', type=bool, default=False)
         return parser
@@ -195,8 +188,6 @@ class LitContactPredictor(pl.LightningModule):
             model: ContactPredictor,
             augment_shift: int,
             augment_rc: bool,
-            target_crop: int,
-            diagonal_offset: int,
             lr: float,
             variational: bool
     ):
@@ -206,20 +197,11 @@ class LitContactPredictor(pl.LightningModule):
         self.model = model
         self.augment_shift = augment_shift
         self.augment_rc = augment_rc
-        self.target_crop = target_crop
-        self.diagonal_offset = diagonal_offset
         self.lr = lr
         self.variational = variational
 
-        self.out_width = model.target_width - 2 * target_crop
-        self.triu_idxs = torch.triu_indices(self.out_width, self.out_width,
-                                            diagonal_offset)
-
     def forward(self, input_seqs):
-        contacts = self.model(input_seqs)
-        boarder = self.target_crop
-        contacts = contacts[:, boarder:-boarder, boarder:-boarder, :]
-        return contacts[:, self.triu_idxs[0], self.triu_idxs[1], :]
+        return self.model(input_seqs, flatten=True)
 
     def training_step(self, batch, batch_idx):
         batch = self._stochastic_augment(batch)
