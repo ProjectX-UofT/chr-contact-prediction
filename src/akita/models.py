@@ -213,7 +213,7 @@ class LitContactPredictor(pl.LightningModule):
         # Use pytorch distributions functions to compute KL Divergence
         if distributions_method:
             prior_distribution = torch.distributions.normal.\
-                Normal(torch.zeros(mu_q.shape(0)), torch.eye(mu_q.shape(0)))
+                Normal(torch.zeros(mu_q.size()), torch.eye(mu_q.shape(0)))
             variational_posterior = torch.distributions.normal.Normal(mu_q, log_var_q)
 
             KLDiv_loss = torch.distributions.kl.kl_divergence(variational_posterior, prior_distribution)
