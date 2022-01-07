@@ -110,3 +110,23 @@ class DilatedResConv2dBlock(nn.Module):
     def forward(self, x):
         x = x + self.blocks(x)  # residual connection
         return self.activation(x)
+
+
+class VariationalLayer(nn.Module):
+
+    def __init__(self, input_dim, latent_dim, vq_mode=False):
+        super().__init__()
+        self.fc_mu = nn.Linear(input_dim, latent_dim)
+        self.fc_logvar = nn.Linear(input_dim, latent_dim)
+        self.vq_mode = vq_mode  # TODO: finish VQ-VAE implementation
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + std * eps
+
+    def forward(self, z):
+        mu = self.fc_mu(z)
+        logvar = self.fc_logvar(z)
+        sample_z = self.reparameterize(mu, logvar)
+        return sample_z, mu, logvar

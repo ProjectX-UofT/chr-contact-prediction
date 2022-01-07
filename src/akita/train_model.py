@@ -24,13 +24,11 @@ def train_main():
     datamodule = AkitaDataModule(batch_size=args.batch_size, num_workers=args.num_workers)
 
     # construct model
-    model = ContactPredictor()
-
     lit_model = LitContactPredictor(
-        model=model,
         augment_shift=args.augment_shift,
         augment_rc=args.augment_rc,
-        lr=args.lr
+        lr=args.lr,
+        variational=args.variational
     )
 
     # TODO: play with training, logging, callback, etc. parameters below
