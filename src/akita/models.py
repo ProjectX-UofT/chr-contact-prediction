@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 from src.akita.layers import AverageTo2D, ConcatDist2D
 
@@ -60,6 +61,41 @@ def reverse_triu(trius, width, offset):
 # =============================================================================
 # Models
 # =============================================================================
+class VariationalLayer(nn.Module):
+
+    def __init__(self, use_variational_obj=True, VQ_mode=False, input_dim=0,
+                 output_dim=0):
+        super().__init__()
+
+        self.use_var_obj = use_variational_obj
+        self.VQ_mode = VQ_mode  # TODO: finish VQ-VAE implementation
+        self.input_dims = input_dim
+        self.output_dims = output_dim
+
+        self.mu = nn.Linear(input_dim, output_dim)
+        self.log_var = nn.Linear(input_dim, output_dim)
+
+    def reparam(self, mu, logvar):
+        """
+        Suppose we have p(z|x) \approx q(z|x), then
+        We want to compute z ~ q(z|x) = mu + N(0, 1) * sigma
+        :param mu: the learned mean vector of the posterior distn
+        :param logvar: the learned log variance vector of the posterior distn
+        :return: a sample from the approximated posterior distn (q(z|x))
+        """
+        sigma = torch.exp(0.5 * logvar)
+        eps = torch.randn(size=(mu.shape(0), mu.shape(1)))
+        return mu + sigma * eps
+
+    def forward(self, encoder_output):
+        if not self.use_var_obj:
+            return encoder_output
+
+        mu = self.mu(encoder_output)
+        log_var = self.log_var(encoder_output)
+        sample_z = self.reparam(mu, log_var)
+
+        return sample_z, mu, log_var
 
 
 class Trunk(nn.Module):
@@ -75,9 +111,11 @@ class Trunk(nn.Module):
         self._add_conv_block(layers, 96, 64, 5)
         self.trunk = nn.Sequential(*layers)
 
-    def _add_conv_block(self, layers, in_channels, out_channels, kernel_size, pool_size=None):
+    def _add_conv_block(self, layers, in_channels, out_channels, kernel_size,
+                        pool_size=None):
         padding = (kernel_size - 1) // 2  # padding needed to maintain same size
-        layers.append(nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding))
+        layers.append(
+            nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding))
         layers.append(nn.BatchNorm1d(out_channels, momentum=0.01))
         if pool_size is not None:
             layers.append(nn.MaxPool1d(kernel_size=pool_size))
@@ -107,7 +145,8 @@ class ContactPredictor(nn.Module):
             seq_length: int = 1048576,
             seq_depth: int = 4,
             target_width: int = 512,
-            num_targets: int = 5
+            num_targets: int = 5,
+            variational: bool = False
     ):
         super().__init__()
 
@@ -115,8 +154,11 @@ class ContactPredictor(nn.Module):
         self.seq_depth = seq_depth
         self.target_width = target_width
         self.num_targets = num_targets
+        self.variational = variational
 
         self.trunk = Trunk()
+        self.variational_layer = VariationalLayer(variational, input_dim=64,
+                                                  output_dim=64)
 
     def forward(self, input_seqs):
         L, D = self.seq_length, self.seq_depth
@@ -124,10 +166,14 @@ class ContactPredictor(nn.Module):
         assert input_seqs.shape[1:] == (L, D)
 
         x = self.trunk(input_seqs)
-        print(x.shape)
-        exit()
+        # print(x.shape)
+        # exit()
 
-        return torch.zeros(input_seqs.shape[0], W, W, C, requires_grad=True)
+        if self.variational:
+            z, mu, log_var = self.variational_layer(x)
+
+        return torch.zeros(input_seqs.shape[0], W, W, C,
+                           requires_grad=True)
 
 
 # Pytorch Lightning wrapper
@@ -141,6 +187,7 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--target_crop', type=int, default=32)
         parser.add_argument('--diagonal_offset', type=int, default=2)
         parser.add_argument('--lr', type=float, default=1e-4)
+        parser.add_argument('--variational', type=bool, default=False)
         return parser
 
     def __init__(
@@ -150,7 +197,8 @@ class LitContactPredictor(pl.LightningModule):
             augment_rc: bool,
             target_crop: int,
             diagonal_offset: int,
-            lr: float
+            lr: float,
+            variational: bool
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -161,9 +209,11 @@ class LitContactPredictor(pl.LightningModule):
         self.target_crop = target_crop
         self.diagonal_offset = diagonal_offset
         self.lr = lr
+        self.variational = variational
 
         self.out_width = model.target_width - 2 * target_crop
-        self.triu_idxs = torch.triu_indices(self.out_width, self.out_width, diagonal_offset)
+        self.triu_idxs = torch.triu_indices(self.out_width, self.out_width,
+                                            diagonal_offset)
 
     def forward(self, input_seqs):
         contacts = self.model(input_seqs)
@@ -200,6 +250,29 @@ class LitContactPredictor(pl.LightningModule):
     def _process_batch(self, batch):
         seqs, tgts = batch
         preds = self(seqs)
+
+        if self.variational:
+            return self._VAE_loss(preds, tgts)
+
         loss = F.mse_loss(preds, tgts)
         batch_size = tgts.shape[0] * tgts.shape[2]
         return loss, batch_size
+
+    def _VAE_loss(self, preds, tgts):
+        # unpack preds; will be a tuple in the case of VAE
+        y_hat, mu_q, log_var_q = preds
+
+        MSELoss_criterion = nn.MSELoss()
+        MSE_loss = MSELoss_criterion(y_hat, tgts)
+
+        # We want to calculate -D_KL[q(z|x) || p(z)]
+        # KL divergence with a normal prior and normal posterior is given as:
+        # log(sigma_q / sigma_p) - (sigma_q^2 + (mu_q-mu_p)^2)/(2*sigma^2_p) + 0.5
+        # Equiv derivation here: https://jaketae.github.io/study/vae/
+        prior_mean, prior_variance = 0, 1
+        KLDiv_loss = torch.sum(log_var_q - math.log(prior_variance) -
+                               (torch.exp(log_var_q) ** 2 +
+                                (mu_q - prior_mean) ** 2) /
+                               (2 * prior_variance) ** 2 + 0.5)
+
+        return MSE_loss + KLDiv_loss
