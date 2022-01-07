@@ -67,11 +67,11 @@ class Trunk(nn.Module):
     def __init__(self):
         super().__init__()
 
-        layers = [Conv1dBlock(4, 96, 11, pool_size=2)]
-        layers += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
-        layers += []  # TODO: add transformer layer
-        layers += [Conv1dBlock(96, 64, 5)]
-        self.trunk = nn.Sequential(*layers)
+        modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
+        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
+        modules += []  # TODO: add transformer layer
+        modules += [Conv1dBlock(96, 64, 5)]
+        self.trunk = nn.Sequential(*modules)
 
     def forward(self, input_seqs):
         input_seqs = input_seqs.transpose(1, 2)
