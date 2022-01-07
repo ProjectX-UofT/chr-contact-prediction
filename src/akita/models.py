@@ -7,7 +7,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.akita.layers import AverageTo2D, ConcatDist2D, Symmetrize2D, Conv1dBlock
+from src.akita.layers import (
+    AverageTo2D,
+    ConcatDist2D,
+    Conv1dBlock,
+    Conv2dBlock,
+    DilatedResConv2dBlock
+)
 
 
 # =============================================================================
@@ -85,30 +91,18 @@ class HeadHIC(nn.Module):
         self.one_to_two = AverageTo2D()
         self.concat_dist = ConcatDist2D()
 
-        layers = list()
-        self._add_symm_conv_block(layers, 65, 48, 3)
+        modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
+        dilation = 1.0
         for _ in range(6):
-            pass
-
-        self.head = nn.Sequential(*layers)
-
-    def _add_symm_conv_block(
-            self, layers, in_channels, out_channels, kernel_size,
-            dilation=1, dropout=0.0, activation=True
-    ):
-        padding = (kernel_size - 1) // 2  # padding needed to maintain size
-        layers.append(nn.Conv2d(in_channels, out_channels, kernel_size,
-                                padding=padding, dilation=dilation))
-        layers.append(nn.BatchNorm2d(out_channels, momentum=0.01))
-        layers.append(Symmetrize2D())
-        if dropout > 0.0:
-            layers.append(nn.Dropout(p=dropout))
-        if activation:
-            layers.append(nn.ReLU())
+            modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
+            dilation *= 1.75
+        self.head = nn.Sequential(*modules)
 
     def forward(self, z):
         z = self.concat_dist(self.one_to_two(z))
-        return z
+        z = torch.permute(z, [0, 3, 1, 2])
+        y = self.head(z)
+        return torch.permute(y, [0, 2, 3, 1])
 
 
 class ContactPredictor(nn.Module):

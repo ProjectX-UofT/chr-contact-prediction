@@ -32,7 +32,7 @@ class ConcatDist2D(nn.Module):
 class Symmetrize2D(nn.Module):
 
     def forward(self, x):
-        return (x + x.transpose(1, 2)) / 2
+        return (x + x.transpose(2, 3)) / 2
 
 
 class Conv1dBlock(nn.Module):
@@ -48,11 +48,65 @@ class Conv1dBlock(nn.Module):
             nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding),
             nn.BatchNorm1d(out_channels, momentum=0.01)
         ]
+
         if pool_size > 1:
             layers.append(nn.MaxPool1d(kernel_size=pool_size))
         if activation:
             layers.append(nn.ReLU())
+
         self.block = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.block(x)
+
+
+class Conv2dBlock(nn.Module):
+
+    def __init__(
+            self, in_channels, out_channels, kernel_size,
+            dilation=1, dropout=0.0, symmetrize=False, activation=True
+    ):
+        super().__init__()
+        padding = dilation * (kernel_size - 1) // 2  # padding needed to maintain size
+
+        # noinspection PyTypeChecker
+        layers = [
+            nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation),
+            nn.BatchNorm2d(out_channels, momentum=0.01)
+        ]
+
+        if dropout > 0.0:
+            layers.append(nn.Dropout(p=dropout))
+        if symmetrize:
+            layers.append(Symmetrize2D())
+        if activation:
+            layers.append(nn.ReLU())
+
+        self.block = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class DilatedResConv2dBlock(nn.Module):
+
+    def __init__(
+            self, in_channels, mid_channels, out_channels, kernel_size,
+            dilation=1, dropout=0.0, symmetrize=False
+    ):
+        super().__init__()
+        self.symmetrize = symmetrize
+
+        self.blocks = nn.Sequential(
+            Conv2dBlock(in_channels, mid_channels, kernel_size, dilation=dilation),
+            Conv2dBlock(mid_channels, out_channels, kernel_size, dropout=dropout, activation=False)
+        )
+
+        if symmetrize:
+            self.activation = nn.Sequential(Symmetrize2D(), nn.ReLU())
+        else:
+            self.activation = nn.ReLU()
+
+    def forward(self, x):
+        x = x + self.blocks(x)  # residual connection
+        return self.activation(x)
