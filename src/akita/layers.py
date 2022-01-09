@@ -130,3 +130,15 @@ class VariationalLayer(nn.Module):
         logvar = self.fc_logvar(z)
         sample_z = self.reparameterize(mu, logvar)
         return sample_z, mu, logvar
+        
+
+class EncoderLayer(nn.Module):
+   def __init__(self， in_channels, out_channels, embed_dim=512, num_heads=5):
+       super(EncoderLayer, self).__init__()
+       self.enc_self_attn = nn.MultiHeadAttention(embed_dim, num_heads) # hyperparam
+       self.pos_ffn = PoswiseFeedForwardNet()
+
+   def forward(self, enc_inputs, enc_self_attn_mask):
+       enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask) # enc_inputs to same Q,K,V
+       enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
+       return enc_outputs, attn
