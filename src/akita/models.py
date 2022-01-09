@@ -13,7 +13,8 @@ from src.akita.layers import (
     Conv1dBlock,
     Conv2dBlock,
     DilatedResConv2dBlock,
-    VariationalLayer
+    VariationalLayer,
+    Encoder
 )
 
 
@@ -76,7 +77,7 @@ class Trunk(nn.Module):
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
         modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
-        modules += []  # TODO: add transformer layer
+        modules += [Encoder(10)]
         modules += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 

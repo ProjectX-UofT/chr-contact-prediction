@@ -130,15 +130,47 @@ class VariationalLayer(nn.Module):
         logvar = self.fc_logvar(z)
         sample_z = self.reparameterize(mu, logvar)
         return sample_z, mu, logvar
-        
+
+
+class PoswiseFeedForwardNet(nn.Module):
+   def __init__(self, input_dim, output_dim, hidden_dim=192):
+       super(PoswiseFeedForwardNet, self).__init__()
+       self.fc1 = nn.Linear(input_dim, hidden_dim)
+       self.fc2 = nn.Linear(hidden_dim, output_dim)
+
+   def forward(self, enc_inputs):
+       enc_outputs = self.fc1(enc_inputs)
+       enc_outputs = self.fc2(enc_outputs)
+       return enc_outputs
+
 
 class EncoderLayer(nn.Module):
-   def __init__(self， in_channels, out_channels, embed_dim=512, num_heads=5):
+   def __init__(self, in_channels=512, out_channels=512, embed_dim=96, num_heads=8):
        super(EncoderLayer, self).__init__()
-       self.enc_self_attn = nn.MultiHeadAttention(embed_dim, num_heads) # hyperparam
-       self.pos_ffn = PoswiseFeedForwardNet()
+       self.enc_self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True) 
+       self.pos_ffn = PoswiseFeedForwardNet(embed_dim, embed_dim)
 
-   def forward(self, enc_inputs, enc_self_attn_mask):
-       enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask) # enc_inputs to same Q,K,V
+   def forward(self, enc_inputs):
+       enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs) 
        enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
        return enc_outputs, attn
+
+
+class Encoder(nn.Module):
+   def __init__(self, n_layers, embed_dim=96):
+       super(Encoder, self).__init__()
+       self.layers = nn.ModuleList([EncoderLayer() for _ in range(n_layers)])
+       self.fc = nn.Linear(embed_dim, embed_dim)
+       self.activ1 = nn.Tanh()
+       self.linear = nn.Linear(embed_dim, embed_dim)
+       self.activ2 = nn.ReLU()
+       self.norm = nn.LayerNorm(embed_dim)
+
+   def forward(self, enc_inputs):
+       enc_outputs = enc_inputs
+       for layer in self.layers:
+           enc_outputs, enc_self_attn = layer(enc_outputs)
+       # output : [batch_size, len, d_model], attn : [batch_size, n_heads, d_mode, d_model]
+       enc_outputs = self.activ1(self.fc(enc_outputs)) # [batch_size, d_model]
+       enc_outputs = self.norm(self.activ2(self.linear(enc_outputs)))
+       return enc_outputs
