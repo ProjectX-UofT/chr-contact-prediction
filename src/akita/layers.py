@@ -137,15 +137,47 @@ class PoswiseFeedForwardNet(nn.Module):
        super(PoswiseFeedForwardNet, self).__init__()
        self.fc1 = nn.Linear(input_dim, hidden_dim)
        self.fc2 = nn.Linear(hidden_dim, output_dim)
+       self.activ = nn.GELU()
 
    def forward(self, enc_inputs):
        enc_outputs = self.fc1(enc_inputs)
        enc_outputs = self.fc2(enc_outputs)
+       enc_outputs = self.activ(enc_outputs)
        return enc_outputs
 
 
+class PoswiseConvNet(nn.Module):
+   def __init__(self, input_dim, output_dim, kernel_size=5):
+       super(PoswiseConvNet, self).__init__()
+       padding = (kernel_size - 1) // 2
+       self.conv1 = nn.Conv1d(input_dim, output_dim, kernel_size, padding=padding)
+       self.conv2 = nn.Conv1d(input_dim, output_dim, kernel_size, padding=padding)
+       self.activ = nn.GELU()
+
+   def forward(self, enc_inputs):
+       enc_outputs = self.conv1(enc_inputs)
+       enc_outputs = self.conv2(enc_outputs)
+       enc_outputs = self.activ(enc_outputs)
+       return enc_outputs
+
+
+########### Implementation with ConvNet ##############
+# class EncoderLayer(nn.Module):
+#    def __init__(self, embed_dim=96, num_heads=8):
+#        super(EncoderLayer, self).__init__()
+#        self.enc_self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True) 
+#        self.pos_conv = PoswiseConvNet(embed_dim, embed_dim)
+
+#    def forward(self, enc_inputs):
+#        enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs) 
+#        enc_outputs = torch.transpose(enc_outputs, 1, 2)
+#        enc_outputs = self.pos_conv(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
+#        enc_outputs = torch.transpose(enc_outputs, 1, 2)
+#        return enc_outputs, attn
+
+
 class EncoderLayer(nn.Module):
-   def __init__(self, in_channels=512, out_channels=512, embed_dim=96, num_heads=8):
+   def __init__(self, embed_dim=96, num_heads=8):
        super(EncoderLayer, self).__init__()
        self.enc_self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True) 
        self.pos_ffn = PoswiseFeedForwardNet(embed_dim, embed_dim)
@@ -153,24 +185,34 @@ class EncoderLayer(nn.Module):
    def forward(self, enc_inputs):
        enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs) 
        enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
-       return enc_outputs, attn
+       return enc_outputs, 
 
 
 class Encoder(nn.Module):
    def __init__(self, n_layers, embed_dim=96):
        super(Encoder, self).__init__()
        self.layers = nn.ModuleList([EncoderLayer() for _ in range(n_layers)])
-       self.fc = nn.Linear(embed_dim, embed_dim)
-       self.activ1 = nn.Tanh()
-       self.linear = nn.Linear(embed_dim, embed_dim)
-       self.activ2 = nn.ReLU()
-       self.norm = nn.LayerNorm(embed_dim)
+    #    self.fc = nn.Linear(embed_dim, embed_dim)
+    #    self.activ1 = nn.Tanh()
+    #    self.linear = nn.Linear(embed_dim, embed_dim)
+    #    self.activ2 = nn.GELU()
+    #    self.norm = nn.LayerNorm(embed_dim)
 
    def forward(self, enc_inputs):
        enc_outputs = enc_inputs
        for layer in self.layers:
            enc_outputs, enc_self_attn = layer(enc_outputs)
        # output : [batch_size, len, d_model], attn : [batch_size, n_heads, d_mode, d_model]
-       enc_outputs = self.activ1(self.fc(enc_outputs)) # [batch_size, d_model]
-       enc_outputs = self.norm(self.activ2(self.linear(enc_outputs)))
+    #    enc_outputs = self.activ1(self.fc(enc_outputs)) # [batch_size, d_model]
+    #    enc_outputs = self.norm(self.activ2(self.linear(enc_outputs)))
        return enc_outputs
+
+
+if __name__ == "__main__":
+    t = torch.rand(2, 512, 96)
+    # conv = PoswiseConvNet(96, 96)
+    # ct = conv(t)
+    # print(ct.shape)
+    el = EncoderLayer()
+    elt = el(t)[0]
+    print(elt.shape)
