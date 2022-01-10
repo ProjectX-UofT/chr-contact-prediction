@@ -14,7 +14,7 @@ from src.akita.layers import (
     Conv2dBlock,
     DilatedResConv2dBlock,
     VariationalLayer,
-    Encoder
+    TransformerEncoder
 )
 
 
@@ -77,7 +77,7 @@ class Trunk(nn.Module):
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
         modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
-        modules += [Encoder(10)]
+        modules += [TransformerEncoder(n_embd=96, n_layer=5, n_head=8, n_inner=512, dropout=0.1)]
         modules += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
@@ -96,8 +96,7 @@ class HeadHIC(nn.Module):
         modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
         dilation = 1.0
         for _ in range(6):
-            modules.append(
-                DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
+            modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
             dilation *= 1.75
         self.head = nn.Sequential(*modules)
 

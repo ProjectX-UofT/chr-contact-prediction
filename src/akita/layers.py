@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 
@@ -132,87 +134,107 @@ class VariationalLayer(nn.Module):
         return sample_z, mu, logvar
 
 
-class PoswiseFeedForwardNet(nn.Module):
-   def __init__(self, input_dim, output_dim, hidden_dim=192):
-       super(PoswiseFeedForwardNet, self).__init__()
-       self.fc1 = nn.Linear(input_dim, hidden_dim)
-       self.fc2 = nn.Linear(hidden_dim, output_dim)
-       self.activ = nn.GELU()
+# Reference: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
+class PositionalEncoding(nn.Module):
 
-   def forward(self, enc_inputs):
-       enc_outputs = self.fc1(enc_inputs)
-       enc_outputs = self.fc2(enc_outputs)
-       enc_outputs = self.activ(enc_outputs)
-       return enc_outputs
+    def __init__(self, n_embd, dropout):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
 
+        position = torch.arange(512).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, n_embd, 2) * (-math.log(10000.0) / n_embd))
+        pe = torch.zeros(512, 1, n_embd)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe)
 
-class PoswiseConvNet(nn.Module):
-   def __init__(self, input_dim, output_dim, kernel_size=5):
-       super(PoswiseConvNet, self).__init__()
-       padding = (kernel_size - 1) // 2
-       self.conv1 = nn.Conv1d(input_dim, output_dim, kernel_size, padding=padding)
-       self.conv2 = nn.Conv1d(input_dim, output_dim, kernel_size, padding=padding)
-       self.activ = nn.GELU()
-
-   def forward(self, enc_inputs):
-       enc_outputs = self.conv1(enc_inputs)
-       enc_outputs = self.conv2(enc_outputs)
-       enc_outputs = self.activ(enc_outputs)
-       return enc_outputs
+    def forward(self, x):
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
 
 
-########### Implementation with ConvNet ##############
+class TransformerEncoder(nn.Module):
+
+    def __init__(self, n_embd, n_layer, n_head, n_inner, dropout):
+        super(TransformerEncoder, self).__init__()
+
+        layer = nn.TransformerEncoderLayer(
+            d_model=n_embd,
+            nhead=n_head,
+            dim_feedforward=n_inner,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True
+        )
+
+        self.pos_encoding = PositionalEncoding(n_embd, dropout)
+        self.encoder = nn.TransformerEncoder(layer, n_layer)
+
+    def forward(self, x):
+        x = x.transpose(1, 2)
+        x = self.encoder(self.pos_encoding(x))
+        return x.transpose(1, 2)
+
+
+# ==================================================================================================
+# Uncomment for later use
+# ==================================================================================================
+#
+#
+# class PoswiseFeedForwardNet(nn.Module):
+#
+#     def __init__(self, input_dim, output_dim, hidden_dim=192):
+#         super(PoswiseFeedForwardNet, self).__init__()
+#         self.fc1 = nn.Linear(input_dim, hidden_dim)
+#         self.fc2 = nn.Linear(hidden_dim, output_dim)
+#         self.activ = nn.GELU()
+#
+#     def forward(self, enc_inputs):
+#         enc_outputs = self.fc1(enc_inputs)
+#         enc_outputs = self.fc2(enc_outputs)
+#         enc_outputs = self.activ(enc_outputs)
+#         return enc_outputs
+#
+#
+# class PoswiseConvNet(nn.Module):
+#
+#     def __init__(self, input_dim, output_dim, kernel_size=5):
+#         super(PoswiseConvNet, self).__init__()
+#         padding = (kernel_size - 1) // 2
+#         self.conv1 = nn.Conv1d(input_dim, output_dim, kernel_size, padding=padding)
+#         self.conv2 = nn.Conv1d(input_dim, output_dim, kernel_size, padding=padding)
+#         self.activ = nn.GELU()
+#
+#     def forward(self, enc_inputs):
+#         enc_outputs = self.conv1(enc_inputs)
+#         enc_outputs = self.conv2(enc_outputs)
+#         enc_outputs = self.activ(enc_outputs)
+#         return enc_outputs
+#
+#
+# ########## Implementation with ConvNet ##############
 # class EncoderLayer(nn.Module):
 #    def __init__(self, embed_dim=96, num_heads=8):
 #        super(EncoderLayer, self).__init__()
-#        self.enc_self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True) 
+#        self.enc_self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
 #        self.pos_conv = PoswiseConvNet(embed_dim, embed_dim)
-
+#
 #    def forward(self, enc_inputs):
-#        enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs) 
+#        enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs)
 #        enc_outputs = torch.transpose(enc_outputs, 1, 2)
 #        enc_outputs = self.pos_conv(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
 #        enc_outputs = torch.transpose(enc_outputs, 1, 2)
 #        return enc_outputs, attn
-
-
-class EncoderLayer(nn.Module):
-   def __init__(self, embed_dim=96, num_heads=8):
-       super(EncoderLayer, self).__init__()
-       self.enc_self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True) 
-       self.pos_ffn = PoswiseFeedForwardNet(embed_dim, embed_dim)
-
-   def forward(self, enc_inputs):
-       enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs) 
-       enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
-       return enc_outputs, 
-
-
-class Encoder(nn.Module):
-   def __init__(self, n_layers, embed_dim=96):
-       super(Encoder, self).__init__()
-       self.layers = nn.ModuleList([EncoderLayer() for _ in range(n_layers)])
-    #    self.fc = nn.Linear(embed_dim, embed_dim)
-    #    self.activ1 = nn.Tanh()
-    #    self.linear = nn.Linear(embed_dim, embed_dim)
-    #    self.activ2 = nn.GELU()
-    #    self.norm = nn.LayerNorm(embed_dim)
-
-   def forward(self, enc_inputs):
-       enc_outputs = enc_inputs
-       for layer in self.layers:
-           enc_outputs, enc_self_attn = layer(enc_outputs)
-       # output : [batch_size, len, d_model], attn : [batch_size, n_heads, d_mode, d_model]
-    #    enc_outputs = self.activ1(self.fc(enc_outputs)) # [batch_size, d_model]
-    #    enc_outputs = self.norm(self.activ2(self.linear(enc_outputs)))
-       return enc_outputs
-
-
-if __name__ == "__main__":
-    t = torch.rand(2, 512, 96)
-    # conv = PoswiseConvNet(96, 96)
-    # ct = conv(t)
-    # print(ct.shape)
-    el = EncoderLayer()
-    elt = el(t)[0]
-    print(elt.shape)
+#
+#
+# class EncoderLayer(nn.Module):
+#     def __init__(self, embed_dim=96, num_heads=8):
+#         super(EncoderLayer, self).__init__()
+#         self.enc_self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+#         self.pos_ffn = PoswiseFeedForwardNet(embed_dim, embed_dim)
+#
+#     def forward(self, enc_inputs):
+#         enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs)
+#         enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
+#         return enc_outputs
