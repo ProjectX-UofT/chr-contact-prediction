@@ -54,7 +54,7 @@ class Conv1dBlock(nn.Module):
         if pool_size > 1:
             layers.append(nn.MaxPool1d(kernel_size=pool_size))
         if activation:
-            layers.append(nn.ReLU())
+            layers.append(nn.GELU())
 
         self.block = nn.Sequential(*layers)
 
@@ -82,7 +82,7 @@ class Conv2dBlock(nn.Module):
         if symmetrize:
             layers.append(Symmetrize2D())
         if activation:
-            layers.append(nn.ReLU())
+            layers.append(nn.GELU())
 
         self.block = nn.Sequential(*layers)
 
@@ -105,9 +105,9 @@ class DilatedResConv2dBlock(nn.Module):
         )
 
         if symmetrize:
-            self.activation = nn.Sequential(Symmetrize2D(), nn.ReLU())
+            self.activation = nn.Sequential(Symmetrize2D(), nn.GELU())
         else:
-            self.activation = nn.ReLU()
+            self.activation = nn.GELU()
 
     def forward(self, x):
         x = x + self.blocks(x)  # residual connection
