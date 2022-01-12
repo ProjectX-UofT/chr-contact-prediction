@@ -27,7 +27,7 @@ class ConcatDist2D(nn.Module):
 
     def forward(self, z_2d):
         self._cache_dist_matrix(z_2d.shape[1])
-        d = self.dist_matrix.tile([z_2d.shape[0], 1, 1, 1])
+        d = self.dist_matrix.tile([z_2d.shape[0], 1, 1, 1]).to(z_2d.device)
         return torch.cat([z_2d, d], dim=-1)
 
 
