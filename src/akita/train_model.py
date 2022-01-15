@@ -36,11 +36,11 @@ def train_main():
 
     # logging
     save_dir = pathlib.Path(__file__).parents[2]
-    logger = WandbLogger(project="train_akita", save_dir=str(save_dir))
+    logger = WandbLogger(project="train_akita", log_model="all", save_dir=str(save_dir))
 
     # callbacks
     early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=12)
-    checkpointing = pl.callbacks.ModelCheckpoint()
+    checkpointing = pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="max")
 
     # training
     trainer = pl.Trainer(
