@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 from src.akita.layers import (
     AverageTo2D,
@@ -202,13 +203,31 @@ class LitContactPredictor(pl.LightningModule):
         if not self.variational:
             return loss, batch_size
 
-        # TODO: work in progress - do we rescale loss?
-        raise NotImplementedError()
+    def _VAE_loss(self, preds, tgts, distributions_method=False):
+        # unpack preds; will be a tuple in the case of VAE
+        y_hat, mu_q, log_var_q = preds
 
-        # VAE loss
-        # kld_loss = -0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=(1, 2))
-        # assert kld_loss.shape == (batch_size,)
-        # kld_loss = torch.mean(kld_loss, dim=0)
-        #
-        # loss = loss + kld_loss  # TODO: weight KLD term
-        # return loss, batch_size
+        MSELoss_criterion = nn.MSELoss()
+        MSE_loss = MSELoss_criterion(y_hat, tgts)
+
+        # Use pytorch distributions functions to compute KL Divergence
+        if distributions_method:
+            prior_distribution = torch.distributions.normal.\
+                Normal(torch.zeros(mu_q.size()), torch.eye(mu_q.shape(0)))
+            variational_posterior = torch.distributions.normal.Normal(mu_q, log_var_q)
+
+            KLDiv_loss = torch.distributions.kl.kl_divergence(variational_posterior, prior_distribution)
+            return (MSE_loss + KLDiv_loss).mean()
+
+        # Analytically derived loss function for the KL Divergence:
+        # We want to calculate -D_KL[q(z|x) || p(z)]
+        # KL divergence with a normal prior and normal posterior is given as:
+        # log(sigma_q / sigma_p) - (sigma_q^2 + (mu_q-mu_p)^2)/(2*sigma^2_p) + 0.5
+        # Equiv derivation here: https://jaketae.github.io/study/vae/
+        prior_mean, prior_variance = 0, 1
+        KLDiv_loss = torch.sum(0.5 * log_var_q - 0.5 * math.log(prior_variance) -
+                               (torch.exp(log_var_q) +
+                                (mu_q - prior_mean) ** 2) /
+                               (2 * prior_variance) + 0.5)
+
+        return (MSE_loss + KLDiv_loss).mean()
