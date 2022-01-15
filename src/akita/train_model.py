@@ -12,8 +12,8 @@ from src.akita.models import LitContactPredictor, ContactPredictor
 def train_main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_workers', type=int, default=16)
+    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--num_workers', type=int, default=2)
     parser = LitContactPredictor.add_model_specific_args(parser)
     args = parser.parse_args()
 
