@@ -6,4 +6,6 @@ Please download the following packages using conda
 - TensorFlow
 - WandB 
 
+Please download Koila from pip
+
 (we'll replace this later with a proper `requirements.txt`)

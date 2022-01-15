@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from koila import lazy
 
 from src.akita.layers import (
     AverageTo2D,
@@ -195,9 +196,12 @@ class LitContactPredictor(pl.LightningModule):
         return seqs, tgts
 
     def _process_batch(self, batch):
-        seqs, tgts = batch
+        seqs, tgts = lazy(batch)
         batch_size = tgts.shape[0]
         preds, mu, logvar = self(seqs)
+
+        if self.variational:
+            return self._VAE_loss(preds, tgts)
 
         loss = F.mse_loss(preds, tgts)
         if not self.variational:
