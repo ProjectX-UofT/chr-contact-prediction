@@ -124,19 +124,25 @@ class ContactPredictor(nn.Module):
         self.diagonal_offset = 2
         self.triu_idxs = torch.triu_indices(448, 448, 2)
 
-    def forward(self, input_seqs, flatten=False):
+    def forward(self, input_seqs, flatten=False, only_decode=False):
+        if only_decode:
+            return self.fc_out(self.forward_pass_flatten(self.head(input_seqs), flatten))
+
         z = self.trunk(input_seqs)
         if self.variational:
             z, mu, logvar = self.vae_layer(z)
         else:
             mu = logvar = None
 
-        y = self.head(z)
+        y = self.forward_pass_flatten(self.head(z), flatten)
+
+        return self.fc_out(y), mu, logvar
+
+    def forward_pass_flatten(self, y, flatten):
         if flatten:
             y = y[:, 32:-32, 32:-32, :]
             y = y[:, self.triu_idxs[0], self.triu_idxs[1], :]
-        return self.fc_out(y), mu, logvar
-
+        return y
 
 # Pytorch Lightning wrapper
 class LitContactPredictor(pl.LightningModule):
@@ -147,7 +153,7 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--lr', type=float, default=1e-4)
-        parser.add_argument('--variational', type=int, default=0)
+        parser.add_argument('--variational', type=int, default=1)
         return parser
 
     def __init__(
@@ -180,6 +186,11 @@ class LitContactPredictor(pl.LightningModule):
         self.log('val_loss', loss, batch_size=batch_size)
         return loss
 
+    def test_step(self, batch, batch_idx):
+        loss, batch_size = self._process_batch(batch, test=True)
+        self.log('test_loss', loss, batch_size=batch_size)
+        return loss
+
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
@@ -195,16 +206,25 @@ class LitContactPredictor(pl.LightningModule):
         seqs = shift_pad(seqs, shift, pad=0.25)
         return seqs, tgts
 
-    def _process_batch(self, batch):
+    def _process_batch(self, batch, test=False):
         seqs, tgts = lazy(batch)
         batch_size = tgts.shape[0]
         preds, mu, logvar = self(seqs)
 
         if self.variational:
-            return self._VAE_loss((preds, mu, logvar), tgts), batch_size
+            if not test:
+                return self._VAE_loss((preds, mu, logvar), tgts), batch_size
+            else:
+                preds = []
+                ppd_predictions = []
+                for sample in range(500):
+                    posterior_sample = torch.distributions.normal.Normal(mu, torch.exp(logvar)).sample()
+                    ppd_predictions.append(self.model(posterior_sample, flatten=True, only_decode=True))
+                averaged_preds = torch.stack(ppd_predictions).mean(dim=0)
+                preds = averaged_preds
 
         loss = F.mse_loss(preds, tgts)
-        if not self.variational:
+        if not self.variational or test:
             return loss, batch_size
 
     def _VAE_loss(self, preds, tgts):
@@ -219,12 +239,13 @@ class LitContactPredictor(pl.LightningModule):
         # KL divergence with a normal prior and normal posterior is given as:
         # log(sigma_q / sigma_p) - (sigma_q^2 + (mu_q-mu_p)^2)/(2*sigma^2_p) + 0.5
         # Equiv derivation here: https://jaketae.github.io/study/vae/
-        prior_mean, prior_variance = 0, 1.05**2
+        # prior_mean, prior_variance = 0, 1
         #print("maximum and minimum", max(mu_q.flatten()), min(mu_q.flatten()))
-        KLDiv_loss = -torch.sum(0.5 * log_var_q - 0.5 * math.log(prior_variance) -
-                               ((torch.exp(log_var_q) + (mu_q - prior_mean) ** 2) / (
-                                           2 * prior_variance))
-                               + 0.5, dim=(1, 2))
-        KLDiv_loss = torch.mean(KLDiv_loss, dim=0)
-
-        return MSE_loss + KLDiv_loss
+        # KLDiv_loss = -torch.sum(0.5 * log_var_q - 0.5 * math.log(prior_variance) -
+        #                        ((torch.exp(log_var_q) + (mu_q - prior_mean) ** 2) / (
+        #                                    2 * prior_variance))
+        #                        + 0.5, dim=(1, 2))
+        # KLDiv_loss = torch.mean(KLDiv_loss, dim=0)
+        kld_loss = -0.5 * torch.sum(1 + log_var_q - mu_q ** 2 - log_var_q.exp(), dim=(1, 2))
+        kld_loss = torch.mean(kld_loss, dim=0)
+        return MSE_loss + kld_loss
