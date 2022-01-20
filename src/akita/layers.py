@@ -114,25 +114,6 @@ class DilatedResConv2dBlock(nn.Module):
         return self.activation(x)
 
 
-class VariationalLayer(nn.Module):
-
-    def __init__(self, input_dim, latent_dim):
-        super().__init__()
-        self.fc_mu = nn.Linear(input_dim, latent_dim)
-        self.fc_logvar = nn.Linear(input_dim, latent_dim)
-
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + std * eps
-
-    def forward(self, z):
-        mu = self.fc_mu(z)
-        logvar = self.fc_logvar(z)
-        sample_z = self.reparameterize(mu, logvar)
-        return sample_z, mu, logvar
-
-
 # Reference: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
 class PositionalEncoding(nn.Module):
 
@@ -176,64 +157,3 @@ class TransformerEncoder(nn.Module):
         return x.transpose(1, 2)
 
 
-# ==================================================================================================
-# Uncomment for later use
-# ==================================================================================================
-#
-#
-# class PoswiseFeedForwardNet(nn.Module):
-#
-#     def __init__(self, input_dim, output_dim, hidden_dim=192):
-#         super(PoswiseFeedForwardNet, self).__init__()
-#         self.fc1 = nn.Linear(input_dim, hidden_dim)
-#         self.fc2 = nn.Linear(hidden_dim, output_dim)
-#         self.activ = nn.GELU()
-#
-#     def forward(self, enc_inputs):
-#         enc_outputs = self.fc1(enc_inputs)
-#         enc_outputs = self.fc2(enc_outputs)
-#         enc_outputs = self.activ(enc_outputs)
-#         return enc_outputs
-#
-#
-# class PoswiseConvNet(nn.Module):
-#
-#     def __init__(self, input_dim, output_dim, kernel_size=5):
-#         super(PoswiseConvNet, self).__init__()
-#         padding = (kernel_size - 1) // 2
-#         self.conv1 = nn.Conv1d(input_dim, output_dim, kernel_size, padding=padding)
-#         self.conv2 = nn.Conv1d(input_dim, output_dim, kernel_size, padding=padding)
-#         self.activ = nn.GELU()
-#
-#     def forward(self, enc_inputs):
-#         enc_outputs = self.conv1(enc_inputs)
-#         enc_outputs = self.conv2(enc_outputs)
-#         enc_outputs = self.activ(enc_outputs)
-#         return enc_outputs
-#
-#
-# ########## Implementation with ConvNet ##############
-# class EncoderLayer(nn.Module):
-#    def __init__(self, embed_dim=96, num_heads=8):
-#        super(EncoderLayer, self).__init__()
-#        self.enc_self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
-#        self.pos_conv = PoswiseConvNet(embed_dim, embed_dim)
-#
-#    def forward(self, enc_inputs):
-#        enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs)
-#        enc_outputs = torch.transpose(enc_outputs, 1, 2)
-#        enc_outputs = self.pos_conv(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
-#        enc_outputs = torch.transpose(enc_outputs, 1, 2)
-#        return enc_outputs, attn
-#
-#
-# class EncoderLayer(nn.Module):
-#     def __init__(self, embed_dim=96, num_heads=8):
-#         super(EncoderLayer, self).__init__()
-#         self.enc_self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
-#         self.pos_ffn = PoswiseFeedForwardNet(embed_dim, embed_dim)
-#
-#     def forward(self, enc_inputs):
-#         enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs)
-#         enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
-#         return enc_outputs
