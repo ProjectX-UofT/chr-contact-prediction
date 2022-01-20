@@ -6,7 +6,6 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from koila import lazy
 
 from src.akita.layers import (
     AverageTo2D,
@@ -72,13 +71,20 @@ def reverse_triu(trius, width, offset):
 
 class Trunk(nn.Module):
 
-    def __init__(self):
+    def __init__(self, n_layer, n_head, n_inner, dropout):
         super().__init__()
+
+        transformer = TransformerEncoder(
+            n_embd=96,
+            n_layer=n_layer,
+            n_head=n_head,
+            n_inner=n_inner,
+            dropout=dropout
+        )
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
         modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
-        modules += [TransformerEncoder(n_embd=96, n_layer=5, n_head=8, n_inner=512, dropout=0.1)]
-        modules += [Conv1dBlock(96, 64, 5)]
+        modules += [transformer, Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
     def forward(self, input_seqs):
@@ -109,12 +115,12 @@ class HeadHIC(nn.Module):
 
 class ContactPredictor(nn.Module):
 
-    def __init__(self):
+    def __init__(self, n_layer, n_head, n_inner, dropout):
         super().__init__()
-        self.trunk = Trunk()
+        self.trunk = Trunk(n_layer, n_head, n_inner, dropout)
         self.head = HeadHIC()
         self.fc_out = nn.Linear(48, 5)
-        
+
         self.target_width = 448
         self.diagonal_offset = 2
         self.triu_idxs = torch.triu_indices(448, 448, 2)
@@ -134,6 +140,12 @@ class LitContactPredictor(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
+
+        parser.add_argument('--n_layer', type=int, default=5)
+        parser.add_argument('--n_head', type=int, default=6)
+        parser.add_argument('--n_inner', type=int, default=128)
+        parser.add_argument('--dropout', type=float, default=0.1)
+
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--lr', type=float, default=1e-4)
@@ -141,14 +153,14 @@ class LitContactPredictor(pl.LightningModule):
 
     def __init__(
             self,
-            augment_rc: bool,
-            augment_shift: int,
-            lr: float,
+            n_layer, n_head, n_inner, dropout,
+            augment_rc, augment_shift, lr,
+            **kwargs
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
 
-        self.model = ContactPredictor()
+        self.model = ContactPredictor(n_layer, n_head, n_inner, dropout)
         self.augment_rc = augment_rc
         self.augment_shift = augment_shift
         self.lr = lr
@@ -168,7 +180,7 @@ class LitContactPredictor(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        loss, batch_size = self._process_batch(batch, test=True)
+        loss, batch_size = self._process_batch(batch)
         self.log('test_loss', loss, batch_size=batch_size)
         return loss
 
@@ -188,7 +200,7 @@ class LitContactPredictor(pl.LightningModule):
         return seqs, tgts
 
     def _process_batch(self, batch):
-        seqs, tgts = lazy(batch)
+        seqs, tgts = batch
         batch_size = tgts.shape[0]
         preds = self(seqs)
         loss = F.mse_loss(preds, tgts)
