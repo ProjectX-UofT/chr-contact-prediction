@@ -6,6 +6,18 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
+from koila import lazy
+
+from src.akita.layers import (
+    AverageTo2D,
+    ConcatDist2D,
+    Conv1dBlock,
+    Conv2dBlock,
+    DilatedResConv2dBlock,
+    VariationalLayer,
+    TransformerEncoder
+)
 
 
 # =============================================================================
@@ -60,50 +72,77 @@ def reverse_triu(trius, width, offset):
 # =============================================================================
 
 
-class ContactPredictor(nn.Module):
+class Trunk(nn.Module):
 
-    def __init__(
-            self,
-            seq_length: int = 1048576,
-            seq_depth: int = 4,
-            target_width: int = 512,
-            num_targets: int = 5
-    ):
+    def __init__(self):
         super().__init__()
 
-        self.seq_length = seq_length
-        self.seq_depth = seq_depth
-        self.target_width = target_width
-        self.num_targets = num_targets
-
-        trunk = list()
-        self._add_conv_block(trunk, 4, 96, 11, 2)
-        for _ in range(10):
-            self._add_conv_block(trunk, 96, 96, 5, 2)
-        # TODO: in progress...
-        self.trunk = nn.Sequential(*trunk)
-
-    def _add_conv_block(self, trunk, in_channels, out_channels, kernel_size, pool_size):
-        conv_padding = (kernel_size - 1) // 2  # padding needed to maintain same size
-        return trunk.extend([
-            nn.Conv1d(in_channels, out_channels, kernel_size, padding=conv_padding),
-            nn.BatchNorm1d(out_channels, momentum=0.01),
-            nn.MaxPool1d(kernel_size=pool_size),
-            nn.ReLU()
-        ])
+        modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
+        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
+        modules += [TransformerEncoder(n_embd=96, n_layer=5, n_head=8, n_inner=512, dropout=0.1)]
+        modules += [Conv1dBlock(96, 64, 5)]
+        self.trunk = nn.Sequential(*modules)
 
     def forward(self, input_seqs):
-        L, D = self.seq_length, self.seq_depth
-        W, C = self.target_width, self.num_targets
-        assert input_seqs.shape[1:] == (L, D)
-
         input_seqs = input_seqs.transpose(1, 2)
-        x = self.trunk(input_seqs)
-        print(x.shape)
-        exit()
+        return self.trunk(input_seqs).transpose(1, 2)
 
-        return torch.zeros(input_seqs.shape[0], W, W, C, requires_grad=True)
 
+class HeadHIC(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.one_to_two = AverageTo2D()
+        self.concat_dist = ConcatDist2D()
+
+        modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
+        dilation = 1.0
+        for _ in range(6):
+            modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
+            dilation *= 1.75
+        self.head = nn.Sequential(*modules)
+
+    def forward(self, z):
+        z = self.concat_dist(self.one_to_two(z))
+        z = torch.permute(z, [0, 3, 1, 2])
+        y = self.head(z)
+        return torch.permute(y, [0, 2, 3, 1])
+
+
+class ContactPredictor(nn.Module):
+
+    def __init__(self, variational=False):
+        super().__init__()
+        self.variational = variational
+
+        self.trunk = Trunk()
+        self.head = HeadHIC()
+        self.fc_out = nn.Linear(48, 5)
+        self.vae_layer = VariationalLayer(64, 64) if variational else None
+
+        self.target_width = 448
+        self.diagonal_offset = 2
+        self.triu_idxs = torch.triu_indices(448, 448, 2)
+
+    def forward(self, input_seqs, flatten=False, only_decode=False):
+        if only_decode:
+            return self.fc_out(self.forward_pass_flatten(self.head(input_seqs), flatten))
+
+        z = self.trunk(input_seqs)
+        if self.variational:
+            z, mu, logvar = self.vae_layer(z)
+        else:
+            mu = logvar = None
+
+        y = self.forward_pass_flatten(self.head(z), flatten)
+
+        return self.fc_out(y), mu, logvar
+
+    def forward_pass_flatten(self, y, flatten):
+        if flatten:
+            y = y[:, 32:-32, 32:-32, :]
+            y = y[:, self.triu_idxs[0], self.triu_idxs[1], :]
+        return y
 
 # Pytorch Lightning wrapper
 class LitContactPredictor(pl.LightningModule):
@@ -111,40 +150,30 @@ class LitContactPredictor(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--augment_rc', type=int, default=1)
-        parser.add_argument('--target_crop', type=int, default=32)
-        parser.add_argument('--diagonal_offset', type=int, default=2)
+        parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--lr', type=float, default=1e-4)
+        parser.add_argument('--variational', type=int, default=1)
         return parser
 
     def __init__(
             self,
-            model: ContactPredictor,
-            augment_shift: int,
             augment_rc: bool,
-            target_crop: int,
-            diagonal_offset: int,
-            lr: float
+            augment_shift: int,
+            lr: float,
+            variational: int
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
 
-        self.model = model
-        self.augment_shift = augment_shift
+        self.model = ContactPredictor(variational=bool(variational))
         self.augment_rc = augment_rc
-        self.target_crop = target_crop
-        self.diagonal_offset = diagonal_offset
+        self.augment_shift = augment_shift
         self.lr = lr
-
-        self.out_width = model.target_width - 2 * target_crop
-        self.triu_idxs = torch.triu_indices(self.out_width, self.out_width, diagonal_offset)
+        self.variational = variational
 
     def forward(self, input_seqs):
-        contacts = self.model(input_seqs)
-        boarder = self.target_crop
-        contacts = contacts[:, boarder:-boarder, boarder:-boarder, :]
-        return contacts[:, self.triu_idxs[0], self.triu_idxs[1], :]
+        return self.model(input_seqs, flatten=True)
 
     def training_step(self, batch, batch_idx):
         batch = self._stochastic_augment(batch)
@@ -155,6 +184,11 @@ class LitContactPredictor(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         loss, batch_size = self._process_batch(batch)
         self.log('val_loss', loss, batch_size=batch_size)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        loss, batch_size = self._process_batch(batch, test=True)
+        self.log('test_loss', loss, batch_size=batch_size)
         return loss
 
     def configure_optimizers(self):
@@ -168,24 +202,50 @@ class LitContactPredictor(pl.LightningModule):
         seqs, tgts = batch
         if self.augment_rc and take_rc:
             seqs = reverse_complement(seqs)
-            tgts = reverse_triu(tgts, self.out_width, self.diagonal_offset)
+            tgts = reverse_triu(tgts, self.model.target_width, self.model.diagonal_offset)
         seqs = shift_pad(seqs, shift, pad=0.25)
         return seqs, tgts
 
-    def _process_batch(self, batch):
-        seqs, tgts = batch
-        preds = self(seqs)
+    def _process_batch(self, batch, test=False):
+        seqs, tgts = lazy(batch)
+        batch_size = tgts.shape[0]
+        preds, mu, logvar = self(seqs)
+
+        if self.variational:
+            if not test:
+                return self._VAE_loss((preds, mu, logvar), tgts), batch_size
+            else:
+                preds = []
+                ppd_predictions = []
+                for sample in range(500):
+                    posterior_sample = torch.distributions.normal.Normal(mu, torch.exp(logvar)).sample()
+                    ppd_predictions.append(self.model(posterior_sample, flatten=True, only_decode=True))
+                averaged_preds = torch.stack(ppd_predictions).mean(dim=0)
+                preds = averaged_preds
+
         loss = F.mse_loss(preds, tgts)
-        batch_size = tgts.shape[0] * tgts.shape[2]
-        return loss, batch_size
+        if not self.variational or test:
+            return loss, batch_size
 
+    def _VAE_loss(self, preds, tgts):
+        # unpack preds; will be a tuple in the case of VAE
+        y_hat, mu_q, log_var_q = preds
 
-if __name__ == "__main__":
-    cp = ContactPredictor(
-        seq_length = 1048576,
-        seq_depth = 4,
-        target_width = 512,
-        num_targets = 5
-    )
-    t = torch.rand((2, 1048576, 4))
-    print(cp(t))
+        MSELoss_criterion = nn.MSELoss()
+        MSE_loss = MSELoss_criterion(y_hat, tgts)
+
+        # Analytically derived loss function for the KL Divergence:
+        # We want to calculate -D_KL[q(z|x) || p(z)]
+        # KL divergence with a normal prior and normal posterior is given as:
+        # log(sigma_q / sigma_p) - (sigma_q^2 + (mu_q-mu_p)^2)/(2*sigma^2_p) + 0.5
+        # Equiv derivation here: https://jaketae.github.io/study/vae/
+        # prior_mean, prior_variance = 0, 1
+        #print("maximum and minimum", max(mu_q.flatten()), min(mu_q.flatten()))
+        # KLDiv_loss = -torch.sum(0.5 * log_var_q - 0.5 * math.log(prior_variance) -
+        #                        ((torch.exp(log_var_q) + (mu_q - prior_mean) ** 2) / (
+        #                                    2 * prior_variance))
+        #                        + 0.5, dim=(1, 2))
+        # KLDiv_loss = torch.mean(KLDiv_loss, dim=0)
+        kld_loss = -0.5 * torch.sum(1 + log_var_q - mu_q ** 2 - log_var_q.exp(), dim=(1, 2))
+        kld_loss = torch.mean(kld_loss, dim=0)
+        return MSE_loss + kld_loss
