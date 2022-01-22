@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import gc
 
 
 from src.akita.layers import (
@@ -179,6 +180,7 @@ class LitContactPredictor(pl.LightningModule):
         return self.model(input_seqs, flatten=True)
 
     def training_step(self, batch, batch_idx):
+        gc.collect()
         batch = self._stochastic_augment(batch)
         loss, batch_size = self._process_batch(batch)
         self.log('train_loss', loss, batch_size=batch_size)

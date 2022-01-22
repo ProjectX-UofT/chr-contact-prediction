@@ -13,7 +13,7 @@ def train_main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=2022)
     parser.add_argument('--batch_size', type=int, default=2)
-    parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--num_workers', type=int, default=2)
     parser = LitContactPredictor.add_model_specific_args(parser)
     args = parser.parse_args()
 
@@ -55,27 +55,10 @@ def train_main():
         gradient_clip_val=10.7,
         logger=logger,
         log_every_n_steps=1,
-        enable_progress_bar=False,
-        auto_lr_find=True,
+        enable_progress_bar=True,
         accumulate_grad_batches=5,
         max_epochs=65
     )
-
-    # # Run learning rate finder
-    # lr_finder = trainer.tuner.lr_find(lit_model)
-    #
-    # # Results can be found in
-    # print(lr_finder.results)
-    #
-    # # Plot with
-    # fig = lr_finder.plot(suggest=True)
-    # fig.show()
-    #
-    # # Pick point based on plot, or get suggestion
-    # new_lr = lr_finder.suggestion()
-    #
-    # # update hparams of the model
-    # lit_model.hparams.lr = new_lr
 
     trainer.fit(lit_model, datamodule=datamodule)
 
