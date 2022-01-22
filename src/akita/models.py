@@ -6,8 +6,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
-from koila import lazy
+
 
 from src.akita.layers import (
     AverageTo2D,
@@ -78,8 +77,8 @@ class Trunk(nn.Module):
         super().__init__()
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
-        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
-        modules += [TransformerEncoder(n_embd=96, n_layer=5, n_head=8, n_inner=512, dropout=0.1)]
+        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(11)]
+        modules += [TransformerEncoder(n_embd=96, n_layer=3, n_head=6, n_inner=256, dropout=0.1)]
         modules += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
@@ -97,7 +96,7 @@ class HeadHIC(nn.Module):
 
         modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
         dilation = 1.0
-        for _ in range(6):
+        for _ in range(4):
             modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
             dilation *= 1.75
         self.head = nn.Sequential(*modules)
@@ -153,7 +152,7 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--lr', type=float, default=1e-4)
-        parser.add_argument('--variational', type=int, default=1)
+        parser.add_argument('--variational', type=int, default=0)
         return parser
 
     def __init__(
@@ -207,7 +206,7 @@ class LitContactPredictor(pl.LightningModule):
         return seqs, tgts
 
     def _process_batch(self, batch, test=False):
-        seqs, tgts = lazy(batch)
+        seqs, tgts = batch
         batch_size = tgts.shape[0]
         preds, mu, logvar = self(seqs)
 
