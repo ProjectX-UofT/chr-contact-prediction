@@ -77,7 +77,11 @@ class Trunk(nn.Module):
         super().__init__()
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
-        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(11)]
+        for i in range(8):
+            if i %2 ==0: 
+                modules.append(Conv1dBlock(96, 96, 5, pool_size=2, max_pool=False, batch_norm=False)) 
+            else: 
+                modules.append(Conv1dBlock(96, 96, 5, pool_size=2)) 
         modules += [TransformerEncoder(n_embd=96, n_layer=3, n_head=6, n_inner=256, dropout=0.1)]
         modules += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
