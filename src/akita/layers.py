@@ -41,18 +41,19 @@ class Conv1dBlock(nn.Module):
 
     def __init__(
             self, in_channels, out_channels, kernel_size,
-            pool_size=1, activation=True
+            pool_size=1, activation=True, max_pool = True, batch_norm=True
     ):
         super().__init__()
         padding = (kernel_size - 1) // 2  # padding needed to maintain size
 
         layers = [
             nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding),
-            nn.BatchNorm1d(out_channels, momentum=0.01)
         ]
+        if batch_norm: 
+            layers.append(nn.BatchNorm1d(out_channels, momentum=0.01))
 
         if pool_size > 1:
-            layers.append(nn.MaxPool1d(kernel_size=pool_size))
+            layers.append(nn.MaxPool1d(kernel_size=pool_size) if max_pool else nn.AvgPool1d(kernel_size=pool_size))
         if activation:
             layers.append(nn.GELU())
 

@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from koila import lazy
+
 
 from src.akita.layers import (
     AverageTo2D,
@@ -15,6 +15,7 @@ from src.akita.layers import (
     Conv1dBlock,
     Conv2dBlock,
     DilatedResConv2dBlock,
+    VariationalLayer,
     TransformerEncoder
 )
 
@@ -85,8 +86,13 @@ class Trunk(nn.Module):
         )
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
-        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(11)]
-        modules += [transformer, Conv1dBlock(96, 64, 5)]
+        for i in range(8):
+            if i %2 ==0: 
+                modules.append(Conv1dBlock(96, 96, 5, pool_size=2, max_pool=False, batch_norm=False)) 
+            else: 
+                modules.append(Conv1dBlock(96, 96, 5, pool_size=2)) 
+        modules += [transformer]
+        modules += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
     def forward(self, input_seqs):
@@ -117,24 +123,38 @@ class HeadHIC(nn.Module):
 
 class ContactPredictor(nn.Module):
 
-    def __init__(self, n_layer, n_head, n_inner, dropout):
+    def __init__(self, variational=False):
         super().__init__()
-        self.trunk = Trunk(n_layer, n_head, n_inner, dropout)
+        self.variational = variational
+
+        self.trunk = Trunk()
         self.head = HeadHIC()
         self.fc_out = nn.Linear(48, 5)
+        self.vae_layer = VariationalLayer(64, 64) if variational else None
 
         self.target_width = 448
         self.diagonal_offset = 2
         self.triu_idxs = torch.triu_indices(448, 448, 2)
 
-    def forward(self, input_seqs, flatten=False):
+    def forward(self, input_seqs, flatten=False, only_decode=False):
+        if only_decode:
+            return self.fc_out(self.forward_pass_flatten(self.head(input_seqs), flatten))
+
         z = self.trunk(input_seqs)
-        y = self.head(z)
+        if self.variational:
+            z, mu, logvar = self.vae_layer(z)
+        else:
+            mu = logvar = None
+
+        y = self.forward_pass_flatten(self.head(z), flatten)
+
+        return self.fc_out(y), mu, logvar
+
+    def forward_pass_flatten(self, y, flatten):
         if flatten:
             y = y[:, 32:-32, 32:-32, :]
             y = y[:, self.triu_idxs[0], self.triu_idxs[1], :]
-        return self.fc_out(y)
-
+        return y
 
 # Pytorch Lightning wrapper
 class LitContactPredictor(pl.LightningModule):
@@ -151,21 +171,23 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--lr', type=float, default=1e-4)
+        parser.add_argument('--variational', type=int, default=0)
         return parser
 
     def __init__(
             self,
             n_layer, n_head, n_inner, dropout,
-            augment_rc, augment_shift, lr,
+            augment_rc, augment_shift, lr, variational,
             **kwargs
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
 
-        self.model = ContactPredictor(n_layer, n_head, n_inner, dropout)
+        self.model = ContactPredictor(n_layer, n_head, n_inner, dropout, variational=bool(variational))
         self.augment_rc = augment_rc
         self.augment_shift = augment_shift
         self.lr = lr
+        self.variational = variational
 
     def forward(self, input_seqs):
         return self.model(input_seqs, flatten=True)
@@ -182,7 +204,7 @@ class LitContactPredictor(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        loss, batch_size = self._process_batch(batch)
+        loss, batch_size = self._process_batch(batch, test=True)
         self.log('test_loss', loss, batch_size=batch_size)
         return loss
 
@@ -201,10 +223,46 @@ class LitContactPredictor(pl.LightningModule):
         seqs = shift_pad(seqs, shift, pad=0.25)
         return seqs, tgts
 
-    def _process_batch(self, batch):
+    def _process_batch(self, batch, test=False):
         seqs, tgts = batch
-        seqs, tgts = lazy(seqs, tgts)
         batch_size = tgts.shape[0]
-        preds = self(seqs)
+        preds, mu, logvar = self(seqs)
+
+        if self.variational:
+            if not test:
+                return self._VAE_loss((preds, mu, logvar), tgts), batch_size
+            else:
+                preds = []
+                ppd_predictions = []
+                for sample in range(500):
+                    posterior_sample = torch.distributions.normal.Normal(mu, torch.exp(logvar)).sample()
+                    ppd_predictions.append(self.model(posterior_sample, flatten=True, only_decode=True))
+                averaged_preds = torch.stack(ppd_predictions).mean(dim=0)
+                preds = averaged_preds
+
         loss = F.mse_loss(preds, tgts)
-        return loss, batch_size
+        if not self.variational or test:
+            return loss, batch_size
+
+    def _VAE_loss(self, preds, tgts):
+        # unpack preds; will be a tuple in the case of VAE
+        y_hat, mu_q, log_var_q = preds
+
+        MSELoss_criterion = nn.MSELoss()
+        MSE_loss = MSELoss_criterion(y_hat, tgts)
+
+        # Analytically derived loss function for the KL Divergence:
+        # We want to calculate -D_KL[q(z|x) || p(z)]
+        # KL divergence with a normal prior and normal posterior is given as:
+        # log(sigma_q / sigma_p) - (sigma_q^2 + (mu_q-mu_p)^2)/(2*sigma^2_p) + 0.5
+        # Equiv derivation here: https://jaketae.github.io/study/vae/
+        # prior_mean, prior_variance = 0, 1
+        #print("maximum and minimum", max(mu_q.flatten()), min(mu_q.flatten()))
+        # KLDiv_loss = -torch.sum(0.5 * log_var_q - 0.5 * math.log(prior_variance) -
+        #                        ((torch.exp(log_var_q) + (mu_q - prior_mean) ** 2) / (
+        #                                    2 * prior_variance))
+        #                        + 0.5, dim=(1, 2))
+        # KLDiv_loss = torch.mean(KLDiv_loss, dim=0)
+        kld_loss = -0.5 * torch.sum(1 + log_var_q - mu_q ** 2 - log_var_q.exp(), dim=(1, 2))
+        kld_loss = torch.mean(kld_loss, dim=0)
+        return MSE_loss + kld_loss
