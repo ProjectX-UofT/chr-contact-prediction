@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from koila import lazy
+
 from src.akita.layers import (
     AverageTo2D,
     ConcatDist2D,
@@ -83,7 +85,7 @@ class Trunk(nn.Module):
         )
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
-        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
+        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(11)]
         modules += [transformer, Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
@@ -101,7 +103,7 @@ class HeadHIC(nn.Module):
 
         modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
         dilation = 1.0
-        for _ in range(6):
+        for _ in range(4):
             modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
             dilation *= 1.75
         self.head = nn.Sequential(*modules)
@@ -141,9 +143,9 @@ class LitContactPredictor(pl.LightningModule):
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
 
-        parser.add_argument('--n_layer', type=int, default=5)
+        parser.add_argument('--n_layer', type=int, default=3)
         parser.add_argument('--n_head', type=int, default=6)
-        parser.add_argument('--n_inner', type=int, default=128)
+        parser.add_argument('--n_inner', type=int, default=256)
         parser.add_argument('--dropout', type=float, default=0.1)
 
         parser.add_argument('--augment_rc', type=int, default=1)
@@ -201,6 +203,7 @@ class LitContactPredictor(pl.LightningModule):
 
     def _process_batch(self, batch):
         seqs, tgts = batch
+        seqs, tgts = lazy(seqs, tgts)
         batch_size = tgts.shape[0]
         preds = self(seqs)
         loss = F.mse_loss(preds, tgts)
