@@ -48,7 +48,7 @@ class Conv1dBlock(nn.Module):
 
         layers = [
             nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding),
-            nn.BatchNorm1d(out_channels, momentum=0.01)
+            nn.BatchNorm1d(out_channels, momentum=0.9265)
         ]
 
         if pool_size > 1:
@@ -74,7 +74,7 @@ class Conv2dBlock(nn.Module):
         # noinspection PyTypeChecker
         layers = [
             nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation),
-            nn.BatchNorm2d(out_channels, momentum=0.01)
+            nn.BatchNorm2d(out_channels, momentum=0.9265)
         ]
 
         if dropout > 0.0:
