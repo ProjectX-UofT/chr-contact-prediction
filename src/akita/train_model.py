@@ -47,7 +47,7 @@ def train_main():
         logger=logger,
         log_every_n_steps=1,
         enable_progress_bar=False,
-        val_check_interval=100
+        val_check_interval=300
     )
 
     trainer.fit(lit_model, datamodule=datamodule)
