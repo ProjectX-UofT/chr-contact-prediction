@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from koila import lazy
 
 from src.akita.layers import (
     AverageTo2D,
@@ -75,8 +74,16 @@ def reverse_triu(trius, width, offset):
 
 class Trunk(nn.Module):
 
-    def __init__(self):
+    def __init__(self, n_layer, n_head, n_inner, dropout):
         super().__init__()
+
+        transformer = TransformerEncoder(
+            n_embd=96,
+            n_layer=n_layer,
+            n_head=n_head,
+            n_inner=n_inner,
+            dropout=dropout
+        )
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
         modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
@@ -85,7 +92,7 @@ class Trunk(nn.Module):
         for i in range(8):
             modules += [DilatedConv1DBlock(96, 48, 96, 1, dilation=round(dilation), dropout=0.4)]
             dilation *= 1.75
-        # modules += [TransformerEncoder(n_embd=96, n_layer=3, n_head=6, n_inner=256, dropout=0.1)]
+        # modules += [transformer]
         modules += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
@@ -115,13 +122,13 @@ class HeadHIC(nn.Module):
         return torch.permute(y, [0, 2, 3, 1])
 
 
+
 class ContactPredictor(nn.Module):
 
-    def __init__(self, variational=False):
+    def __init__(self, n_layer, n_head, n_inner, dropout, variational):
         super().__init__()
         self.variational = variational
-
-        self.trunk = Trunk()
+        self.trunk = Trunk(n_layer, n_head, n_inner, dropout)
         self.head = HeadHIC()
         self.fc_out = nn.Linear(48, 5)
         self.vae_layer = VariationalLayer(64, 64) if variational else None
@@ -156,27 +163,32 @@ class LitContactPredictor(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
+
+        parser.add_argument('--n_layer', type=int, default=3)
+        parser.add_argument('--n_head', type=int, default=6)
+        parser.add_argument('--n_inner', type=int, default=256)
+        parser.add_argument('--dropout', type=float, default=0.1)
+
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
-        parser.add_argument('--lr', type=float, default=1e-4)
-        parser.add_argument('--variational', type=int, default=1)
+        parser.add_argument('--lr', type=float, default=0.004)
+        parser.add_argument('--variational', type=int, default=0)
         return parser
 
     def __init__(
             self,
-            augment_rc: bool,
-            augment_shift: int,
-            lr: float,
-            variational: int
+            n_layer, n_head, n_inner, dropout,
+            augment_rc, augment_shift, lr,
+            **kwargs
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
 
-        self.model = ContactPredictor(variational=bool(variational))
+        self.model = ContactPredictor(n_layer, n_head, n_inner, dropout, variational=bool(kwargs['variational']))
         self.augment_rc = augment_rc
         self.augment_shift = augment_shift
         self.lr = lr
-        self.variational = variational
+        self.variational = bool(kwargs['variational'])
 
     def forward(self, input_seqs):
         return self.model(input_seqs, flatten=True)
@@ -213,7 +225,7 @@ class LitContactPredictor(pl.LightningModule):
         return seqs, tgts
 
     def _process_batch(self, batch, test=False):
-        seqs, tgts = lazy(batch)
+        seqs, tgts = batch
         batch_size = tgts.shape[0]
         preds, mu, logvar = self(seqs)
 
