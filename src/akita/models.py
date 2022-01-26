@@ -164,7 +164,7 @@ class LitContactPredictor(pl.LightningModule):
 
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
-        parser.add_argument('--lr', type=float, default=0.004)
+        parser.add_argument('--lr', type=float, default=0.0025)
         parser.add_argument('--variational', type=int, default=1)
         return parser
 
