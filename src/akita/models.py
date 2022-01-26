@@ -148,13 +148,16 @@ class LitContactPredictor(pl.LightningModule):
 
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
-        parser.add_argument('--lr', type=float, default=1e-4)
+
+        parser.add_argument('--optimizer', type=str, default="sgd")
+        parser.add_argument('--lr', type=float, default=0.0065)
+        parser.add_argument('--momentum', type=float, default=0.99)
         return parser
 
     def __init__(
             self,
             n_layer, n_head, n_inner, dropout,
-            augment_rc, augment_shift, lr,
+            augment_rc, augment_shift, optimizer, lr, momentum,
             **kwargs
     ):
         super().__init__()
@@ -163,7 +166,9 @@ class LitContactPredictor(pl.LightningModule):
         self.model = ContactPredictor(n_layer, n_head, n_inner, dropout)
         self.augment_rc = augment_rc
         self.augment_shift = augment_shift
+        self.optimizer = optimizer
         self.lr = lr
+        self.momentum = momentum
 
     def forward(self, input_seqs):
         return self.model(input_seqs, flatten=True)
@@ -185,8 +190,12 @@ class LitContactPredictor(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        return optimizer
+        if self.optimizer == "adam":
+            return torch.optim.Adam(self.parameters(), lr=self.lr)
+        elif self.optimizer == "sgd":
+            return torch.optim.SGD(self.parameters(), lr=self.lr, momentum=self.momentum)
+        else:
+            raise ValueError()
 
     def _stochastic_augment(self, batch):
         take_rc = bool(random.getrandbits(1))
