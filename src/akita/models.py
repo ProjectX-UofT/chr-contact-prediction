@@ -101,9 +101,9 @@ class HeadHIC(nn.Module):
 
         modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
         dilation = 1.0
-        for _ in range(6):
+        for _ in range(3):
             modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
-            dilation *= 1.75
+            dilation *= 4.0
         self.head = nn.Sequential(*modules)
 
     def forward(self, z):
@@ -144,7 +144,7 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--n_layer', type=int, default=5)
         parser.add_argument('--n_head', type=int, default=6)
         parser.add_argument('--n_inner', type=int, default=128)
-        parser.add_argument('--dropout', type=float, default=0.1)
+        parser.add_argument('--dropout', type=float, default=0.2)
 
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
