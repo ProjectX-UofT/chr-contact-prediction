@@ -16,7 +16,8 @@ from src.akita.layers import (
     Conv2dBlock,
     DilatedResConv2dBlock,
     VariationalLayer,
-    TransformerEncoder
+    TransformerEncoder,
+    DilatedConv1DBlock
 )
 
 
@@ -79,7 +80,12 @@ class Trunk(nn.Module):
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
         modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
-        modules += [TransformerEncoder(n_embd=96, n_layer=5, n_head=8, n_inner=512, dropout=0.1)]
+        # Akita Replication
+        dilation = 1.0
+        for i in range(8):
+            modules += [DilatedConv1DBlock(96, 48, 96, 1, dilation=round(dilation), dropout=0.4)]
+            dilation *= 1.75
+        # modules += [TransformerEncoder(n_embd=96, n_layer=3, n_head=6, n_inner=256, dropout=0.1)]
         modules += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
@@ -192,7 +198,7 @@ class LitContactPredictor(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.975)
         return optimizer
 
     def _stochastic_augment(self, batch):
