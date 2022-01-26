@@ -2,7 +2,7 @@ import argparse
 import pathlib
 
 import pytorch_lightning as pl
-import torch.cuda
+import torch
 from pytorch_lightning.loggers import WandbLogger
 
 from src.akita.datamodule import AkitaDataModule
