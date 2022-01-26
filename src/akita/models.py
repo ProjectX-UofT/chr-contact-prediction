@@ -165,7 +165,7 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--lr', type=float, default=0.004)
-        parser.add_argument('--variational', type=int, default=0)
+        parser.add_argument('--variational', type=int, default=1)
         return parser
 
     def __init__(
@@ -207,7 +207,7 @@ class LitContactPredictor(pl.LightningModule):
         return optimizer
 
     def _stochastic_augment(self, batch):
-        take_rc = bool(random.getrandbits(1))
+        take_rc = torch.rand(size=[]) > 0.5
         shift = random.randrange(-self.augment_shift, self.augment_shift + 1)
 
         seqs, tgts = batch

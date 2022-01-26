@@ -47,12 +47,11 @@ def train_main():
     trainer = pl.Trainer(
         callbacks=[early_stopping, checkpointing, stochastic_weighting, lr_monitor],
         deterministic=True,
-        gpus=(1 if torch.cuda.is_available() else 0),
+        gpus=(2 if torch.cuda.is_available() else 0),
         gradient_clip_val=10.7,
         logger=logger,
         log_every_n_steps=1,
-        enable_progress_bar=True,
-        accumulate_grad_batches=2,
+        enable_progress_bar=False,
         max_epochs=65
     )
 
