@@ -46,7 +46,8 @@ def train_main():
         gradient_clip_val=10,
         logger=logger,
         log_every_n_steps=1,
-        enable_progress_bar=False
+        enable_progress_bar=False,
+        val_check_interval=100
     )
 
     trainer.fit(lit_model, datamodule=datamodule)
