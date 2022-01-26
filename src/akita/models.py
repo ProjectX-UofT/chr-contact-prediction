@@ -6,7 +6,6 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_ema import ExponentialMovingAverage
 
 from src.akita.layers import (
     AverageTo2D,
@@ -150,13 +149,12 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--lr', type=float, default=1e-4)
-        parser.add_argument('--ema_decay', type=float, default=0.995)
         return parser
 
     def __init__(
             self,
             n_layer, n_head, n_inner, dropout,
-            augment_rc, augment_shift, lr, ema_decay,
+            augment_rc, augment_shift, lr,
             **kwargs
     ):
         super().__init__()
@@ -165,9 +163,7 @@ class LitContactPredictor(pl.LightningModule):
         self.model = ContactPredictor(n_layer, n_head, n_inner, dropout)
         self.augment_rc = augment_rc
         self.augment_shift = augment_shift
-
         self.lr = lr
-        self.ema = ExponentialMovingAverage(self.model.parameters(), decay=ema_decay)
 
     def forward(self, input_seqs):
         return self.model(input_seqs, flatten=True)
@@ -191,9 +187,6 @@ class LitContactPredictor(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
-
-    def on_before_zero_grad(self, *args, **kwargs):
-        self.ema.update(self.model.parameters())
 
     def _stochastic_augment(self, batch):
         take_rc = bool(random.getrandbits(1))
