@@ -75,16 +75,16 @@ class Trunk(nn.Module):
         super().__init__()
 
         transformer = TransformerEncoder(
-            n_embd=96,
+            n_embd=90,
             n_layer=n_layer,
             n_head=n_head,
             n_inner=n_inner,
             dropout=dropout
         )
 
-        modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
-        modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
-        modules += [transformer, Conv1dBlock(96, 64, 5)]
+        modules = [Conv1dBlock(4, 90, 11, pool_size=2)]
+        modules += [Conv1dBlock(90, 90, 5, pool_size=2) for _ in range(10)]
+        modules += [transformer, Conv1dBlock(90, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
     def forward(self, input_seqs):
@@ -94,16 +94,16 @@ class Trunk(nn.Module):
 
 class HeadHIC(nn.Module):
 
-    def __init__(self):
+    def __init__(self, n_head_blocks, head_dilate_rate):
         super().__init__()
         self.one_to_two = AverageTo2D()
         self.concat_dist = ConcatDist2D()
 
         modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
         dilation = 1.0
-        for _ in range(6):
+        for _ in range(n_head_blocks):
             modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
-            dilation *= 1.75
+            dilation *= head_dilate_rate
         self.head = nn.Sequential(*modules)
 
     def forward(self, z):
@@ -115,10 +115,13 @@ class HeadHIC(nn.Module):
 
 class ContactPredictor(nn.Module):
 
-    def __init__(self, n_layer, n_head, n_inner, dropout):
+    def __init__(
+            self, n_layer, n_head, n_inner, dropout,
+            n_head_blocks, head_dilate_rate
+    ):
         super().__init__()
         self.trunk = Trunk(n_layer, n_head, n_inner, dropout)
-        self.head = HeadHIC()
+        self.head = HeadHIC(n_head_blocks, head_dilate_rate)
         self.fc_out = nn.Linear(48, 5)
 
         self.target_width = 448
@@ -141,10 +144,13 @@ class LitContactPredictor(pl.LightningModule):
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
 
-        parser.add_argument('--n_layer', type=int, default=5)
-        parser.add_argument('--n_head', type=int, default=6)
-        parser.add_argument('--n_inner', type=int, default=128)
-        parser.add_argument('--dropout', type=float, default=0.1)
+        parser.add_argument('--n_layer', type=int, default=3)
+        parser.add_argument('--n_head', type=int, default=5)
+        parser.add_argument('--n_inner', type=int, default=90)
+        parser.add_argument('--dropout', type=float, default=0.2)
+
+        parser.add_argument('--n_head_blocks', type=int, default=3)
+        parser.add_argument('--head_dilate_rate', type=float, default=4.0)
 
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
@@ -157,13 +163,18 @@ class LitContactPredictor(pl.LightningModule):
     def __init__(
             self,
             n_layer, n_head, n_inner, dropout,
+            n_head_blocks, head_dilate_rate,
             augment_rc, augment_shift, optimizer, lr, momentum,
             **kwargs
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
 
-        self.model = ContactPredictor(n_layer, n_head, n_inner, dropout)
+        self.model = ContactPredictor(
+            n_layer, n_head, n_inner, dropout,
+            n_head_blocks, head_dilate_rate
+        )
+
         self.augment_rc = augment_rc
         self.augment_shift = augment_shift
         self.optimizer = optimizer
