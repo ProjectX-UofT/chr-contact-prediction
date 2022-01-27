@@ -160,7 +160,7 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--n_layer', type=int, default=3)
         parser.add_argument('--n_head', type=int, default=6)
         parser.add_argument('--n_inner', type=int, default=256)
-        parser.add_argument('--dropout', type=float, default=0.1)
+        parser.add_argument('--dropout', type=float, default=0.2)
 
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
