@@ -14,6 +14,8 @@ def train_main():
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--accumulate_batches', type=int, default=6)
+    parser.add_argument('--val_interval', type=int, default=200)
     parser = LitContactPredictor.add_model_specific_args(parser)
     args = parser.parse_args()
 
@@ -47,7 +49,8 @@ def train_main():
         logger=logger,
         log_every_n_steps=1,
         enable_progress_bar=False,
-        val_check_interval=300
+        accumulate_grad_batches=args.accumulate_batches,
+        val_check_interval=args.val_interval
     )
 
     trainer.fit(lit_model, datamodule=datamodule)
