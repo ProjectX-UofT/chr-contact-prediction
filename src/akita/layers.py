@@ -101,7 +101,7 @@ class DilatedResConv2dBlock(nn.Module):
 
         self.blocks = nn.Sequential(
             Conv2dBlock(in_channels, mid_channels, kernel_size, dilation=dilation),
-            Conv2dBlock(mid_channels, out_channels, kernel_size, dropout=dropout, activation=False)
+            Conv2dBlock(mid_channels, out_channels, 1, dropout=dropout, activation=False)
         )
 
         if symmetrize:
