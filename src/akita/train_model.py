@@ -3,7 +3,6 @@ import pathlib
 
 import pytorch_lightning as pl
 import torch
-import wandb
 from pytorch_lightning.loggers import WandbLogger
 
 from src.akita.datamodule import AkitaDataModule
@@ -15,7 +14,7 @@ def train_main():
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=3)
     parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--accumulate_batches', type=int, default=3)
+    parser.add_argument('--accumulate_batches', type=int, default=1)
     parser.add_argument('--val_interval', type=int, default=200)
     parser = LitContactPredictor.add_model_specific_args(parser)
     args = parser.parse_args()
@@ -30,12 +29,13 @@ def train_main():
     # construct model
     lit_model = LitContactPredictor(**vars(args))
 
-    # TODO: play with training, logging, callback, etc. parameters below
-    # TODO: I wasn't sure how to get it to checkpoint in a nice directory
+    # TODO: kind of a hack
+    if torch.cuda.is_available():
+        lit_model.ema.to(device=torch.device("cuda"))
 
     # logging
     save_dir = pathlib.Path(__file__).parents[2]
-    logger = WandbLogger(project="train_akita_alston", save_dir=str(save_dir))
+    logger = WandbLogger(project="train_akita_alston", save_dir=str(save_dir), log_model="all")
     logger.watch(lit_model, log="all", log_freq=args.val_interval, log_graph=True)
 
     # callbacks
