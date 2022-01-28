@@ -15,7 +15,7 @@ def train_main():
     parser.add_argument('--batch_size', type=int, default=3)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--accumulate_batches', type=int, default=1)
-    parser.add_argument('--val_interval', type=int, default=200)
+    parser.add_argument('--val_interval', default=1000)
     parser = LitContactPredictor.add_model_specific_args(parser)
     args = parser.parse_args()
 
