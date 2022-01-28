@@ -13,9 +13,9 @@ from src.akita.models import LitContactPredictor
 def train_main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--batch_size', type=int, default=3)
     parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--accumulate_batches', type=int, default=6)
+    parser.add_argument('--accumulate_batches', type=int, default=3)
     parser.add_argument('--val_interval', type=int, default=200)
     parser = LitContactPredictor.add_model_specific_args(parser)
     args = parser.parse_args()
@@ -36,7 +36,7 @@ def train_main():
     # logging
     save_dir = pathlib.Path(__file__).parents[2]
     logger = WandbLogger(project="train_akita_alston", save_dir=str(save_dir))
-    logger.watch(lit_model, log="all", log_freq=args.val_interval)
+    logger.watch(lit_model, log="all", log_freq=args.val_interval, log_graph=True)
 
     # callbacks
     early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=12)

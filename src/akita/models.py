@@ -100,10 +100,11 @@ class HeadHIC(nn.Module):
         self.concat_dist = ConcatDist2D()
 
         modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
-        dilation = 1.0
-        for _ in range(n_head_blocks):
-            modules.append(DilatedResConv2dBlock(48, 24, 48, 3, round(dilation), 0.1, True))
-            dilation *= head_dilate_rate
+        dilations = [round(2.0 * head_dilate_rate ** i) for i in reversed(range(n_head_blocks))]
+        for d in dilations:
+            modules.append(DilatedResConv2dBlock(48, 24, 48, 3, d, 0.1, True))
+        modules.append(Conv2dBlock(48, 48, 3, symmetrize=True))
+        modules.append(Conv2dBlock(48, 48, 3, symmetrize=True))
         self.head = nn.Sequential(*modules)
 
     def forward(self, z):
@@ -147,10 +148,10 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--n_layer', type=int, default=3)
         parser.add_argument('--n_head', type=int, default=5)
         parser.add_argument('--n_inner', type=int, default=90)
-        parser.add_argument('--dropout', type=float, default=0.2)
+        parser.add_argument('--dropout', type=float, default=0.1)
 
-        parser.add_argument('--n_head_blocks', type=int, default=3)
-        parser.add_argument('--head_dilate_rate', type=float, default=4.0)
+        parser.add_argument('--n_head_blocks', type=int, default=4)
+        parser.add_argument('--head_dilate_rate', type=float, default=2.0)
 
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
