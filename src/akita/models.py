@@ -100,11 +100,14 @@ class HeadHIC(nn.Module):
         self.concat_dist = ConcatDist2D()
 
         modules = [Conv2dBlock(65, 48, 3, symmetrize=True)]
-        dilations = [round(2.0 * head_dilate_rate ** i) for i in reversed(range(n_head_blocks))]
-        for d in dilations:
-            modules.append(DilatedResConv2dBlock(48, 24, 48, 3, d, 0.1, True))
+        for i in reversed(range(n_head_blocks // 2)):
+            dilate = round(2.0 * (head_dilate_rate ** i))
+            modules.extend([
+                DilatedResConv2dBlock(48, 24, 48, 3, dilate, 0.1, True),
+                DilatedResConv2dBlock(48, 24, 48, 3, dilate, 0.1, True)
+            ])
         modules.append(Conv2dBlock(48, 48, 3, symmetrize=True))
-        modules.append(Conv2dBlock(48, 48, 3, symmetrize=True))
+
         self.head = nn.Sequential(*modules)
 
     def forward(self, z):
@@ -187,17 +190,19 @@ class LitContactPredictor(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         batch = self._stochastic_augment(batch)
-        loss, batch_size = self._process_batch(batch)
+        (loss, mae), batch_size = self._process_batch(batch)
         self.log('train_loss', loss, batch_size=batch_size)
+        self.log('train_mae', mae, batch_size=batch_size)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, batch_size = self._process_batch(batch)
+        (loss, mae), batch_size = self._process_batch(batch)
         self.log('val_loss', loss, batch_size=batch_size)
+        self.log('val_mae', mae, batch_size=batch_size)
         return loss
 
     def test_step(self, batch, batch_idx):
-        loss, batch_size = self._process_batch(batch)
+        (loss, mae), batch_size = self._process_batch(batch)
         self.log('test_loss', loss, batch_size=batch_size)
         return loss
 
@@ -225,4 +230,5 @@ class LitContactPredictor(pl.LightningModule):
         batch_size = tgts.shape[0]
         preds = self(seqs)
         loss = F.mse_loss(preds, tgts)
-        return loss, batch_size
+        mae = F.l1_loss(preds, tgts)
+        return (loss, mae), batch_size
