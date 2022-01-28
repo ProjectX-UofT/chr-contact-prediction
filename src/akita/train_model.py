@@ -29,7 +29,6 @@ def train_main():
 
     # construct model
     lit_model = LitContactPredictor(**vars(args))
-    wandb.watch(lit_model, log="all", log_freq=args.val_interval)
 
     # TODO: play with training, logging, callback, etc. parameters below
     # TODO: I wasn't sure how to get it to checkpoint in a nice directory
@@ -37,6 +36,7 @@ def train_main():
     # logging
     save_dir = pathlib.Path(__file__).parents[2]
     logger = WandbLogger(project="train_akita_alston", save_dir=str(save_dir))
+    logger.watch(lit_model, log="all", log_freq=args.val_interval)
 
     # callbacks
     early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=12)
