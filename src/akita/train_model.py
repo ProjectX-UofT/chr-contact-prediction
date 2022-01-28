@@ -3,6 +3,7 @@ import pathlib
 
 import pytorch_lightning as pl
 import torch
+import wandb
 from pytorch_lightning.loggers import WandbLogger
 
 from src.akita.datamodule import AkitaDataModule
@@ -28,6 +29,7 @@ def train_main():
 
     # construct model
     lit_model = LitContactPredictor(**vars(args))
+    wandb.watch(lit_model, log="all", log_freq=args.val_interval)
 
     # TODO: play with training, logging, callback, etc. parameters below
     # TODO: I wasn't sure how to get it to checkpoint in a nice directory
