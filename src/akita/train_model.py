@@ -29,10 +29,12 @@ def train_main():
     args.data_size = len(datamodule.train)
 
     # construct model
+    run = wandb.init()
+    artifact = run.use_artifact('uoft-project-x/train_akita/model-187j75lj:v29', type='model')
+    artifact_dir = artifact.download()
     lit_model = LitContactPredictor(**vars(args))
+    lit_model = lit_model.load_from_checkpoint(artifact_dir + "\\model.ckpt")
 
-    # TODO: play with training, logging, callback, etc. parameters below
-    # TODO: I wasn't sure how to get it to checkpoint in a nice directory
 
     # logging
     save_dir = pathlib.Path(__file__).parents[2]
@@ -42,9 +44,9 @@ def train_main():
     logger.experiment.config["batch_size"] = args.batch_size
 
     # callbacks
-    early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=40)
+    early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=130)
     checkpointing = pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=20)
-    stochastic_weighting = pl.callbacks.StochasticWeightAveraging(swa_epoch_start=0.75, annealing_epochs=5, swa_lrs=4.5e-4)
+    stochastic_weighting = pl.callbacks.StochasticWeightAveraging(swa_epoch_start=0.75, annealing_epochs=5, swa_lrs=5.5e-4)
     lr_monitor = pl.callbacks.LearningRateMonitor("step", True)
 
     # training
@@ -56,7 +58,7 @@ def train_main():
         logger=logger,
         log_every_n_steps=1,
         enable_progress_bar=False,
-        max_epochs=65,
+        max_epochs=130,
         strategy = DDPPlugin(find_unused_parameters=False)
     )
 

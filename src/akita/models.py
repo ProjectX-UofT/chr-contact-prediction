@@ -139,7 +139,6 @@ class ContactPredictor(nn.Module):
             z, mu, logvar = self.vae_layer(z)
         else:
             mu = logvar = None
-
         y = self.forward_pass_flatten(self.head(z), flatten)
 
         return self.fc_out(y), mu, logvar
@@ -160,12 +159,12 @@ class LitContactPredictor(pl.LightningModule):
         parser.add_argument('--n_layer', type=int, default=3)
         parser.add_argument('--n_head', type=int, default=6)
         parser.add_argument('--n_inner', type=int, default=256)
-        parser.add_argument('--dropout', type=float, default=0.2)
+        parser.add_argument('--dropout', type=float, default=0.175)
 
         parser.add_argument('--augment_rc', type=int, default=1)
         parser.add_argument('--augment_shift', type=int, default=11)
         parser.add_argument('--lr', type=float, default=0.0025)
-        parser.add_argument('--variational', type=int, default=1)
+        parser.add_argument('--variational', type=int, default=0)
         return parser
 
     def __init__(
@@ -203,7 +202,7 @@ class LitContactPredictor(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.975)
+        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.925)
         return optimizer
 
     def _stochastic_augment(self, batch):
