@@ -17,13 +17,15 @@ class ConcatDist2D(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.dist_matrix = torch.zeros(1, 1, 1, 1)
+        dist_matrix = torch.zeros(1, 1, 1, 1)
+        self.register_buffer("dist_matrix", dist_matrix)
 
     def _cache_dist_matrix(self, width):
         if self.dist_matrix.shape[1] == width:
             return
         dists = torch.tensor([[[[abs(i - j)] for i in range(width)] for j in range(width)]])
-        self.dist_matrix = dists.float() / (width - 1)
+        dist_matrix = dists.float() / (width - 1)
+        self.register_buffer("dist_matrix", dist_matrix)
 
     def forward(self, z_2d):
         self._cache_dist_matrix(z_2d.shape[1])

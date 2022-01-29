@@ -6,7 +6,6 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_ema import ExponentialMovingAverage
 
 from src.akita.layers import (
     AverageTo2D,
@@ -186,11 +185,6 @@ class LitContactPredictor(pl.LightningModule):
         self.lr = lr
         self.momentum = momentum
 
-        self.ema = ExponentialMovingAverage(self.parameters(), decay=0.995)
-
-    def on_train_batch_end(self, batch, batch_idx, unused):
-        self.ema.update()
-
     def forward(self, input_seqs):
         return self.model(input_seqs, flatten=True)
 
@@ -202,15 +196,15 @@ class LitContactPredictor(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        with self.ema.average_parameters():
-            (loss, mae), batch_size = self._process_batch(batch)
-        self.log('val_loss', loss, batch_size=batch_size)
-        self.log('val_mae', mae, batch_size=batch_size)
+        (loss, mae), batch_size = self._process_batch(batch)
+        self.log('val_loss', loss, batch_size=batch_size, sync_dist=True)
+        self.log('val_mae', mae, batch_size=batch_size, sync_dist=True)
         return loss
 
     def test_step(self, batch, batch_idx):
         (loss, mae), batch_size = self._process_batch(batch)
-        self.log('test_loss', loss, batch_size=batch_size)
+        self.log('test_loss', loss, batch_size=batch_size, sync_dist=True)
+        self.log('test_mae', mae, batch_size=batch_size, sync_dist=True)
         return loss
 
     def configure_optimizers(self):
