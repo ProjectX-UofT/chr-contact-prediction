@@ -4,6 +4,8 @@ import pathlib
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.plugins import DDPPlugin
+
 
 from src.akita.datamodule import AkitaDataModule
 from src.akita.models import LitContactPredictor
@@ -13,9 +15,9 @@ def train_main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=3)
-    parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--num_workers', type=int, default=4)
     parser.add_argument('--accumulate_batches', type=int, default=1)
-    parser.add_argument('--val_interval', default=1000)
+    parser.add_argument('--val_interval', type=int, default=1000)
     parser = LitContactPredictor.add_model_specific_args(parser)
     args = parser.parse_args()
 
@@ -28,10 +30,6 @@ def train_main():
 
     # construct model
     lit_model = LitContactPredictor(**vars(args))
-
-    # TODO: kind of a hack
-    if torch.cuda.is_available():
-        lit_model.ema.to(device=torch.device("cuda"))
 
     # logging
     save_dir = pathlib.Path(__file__).parents[2]
@@ -46,13 +44,14 @@ def train_main():
     trainer = pl.Trainer(
         callbacks=[early_stopping, checkpointing],
         deterministic=True,
-        gpus=(1 if torch.cuda.is_available() else 0),
+        gpus=(-1 if torch.cuda.is_available() else 0),
         gradient_clip_val=10,
         logger=logger,
         log_every_n_steps=1,
         enable_progress_bar=False,
         accumulate_grad_batches=args.accumulate_batches,
-        val_check_interval=args.val_interval
+        val_check_interval=args.val_interval,
+        strategy = DDPPlugin(find_unused_parameters=False)
     )
 
     trainer.fit(lit_model, datamodule=datamodule)
