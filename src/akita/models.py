@@ -229,7 +229,7 @@ class LitContactPredictor(pl.LightningModule):
     def _process_batch(self, batch):
         seqs, tgts = batch
         batch_size = tgts.shape[0]
-        preds = self(seqs)
+        preds = self(seqs.contiguous())
         loss = F.mse_loss(preds, tgts)
         mae = F.l1_loss(preds, tgts)
         return (loss, mae), batch_size
