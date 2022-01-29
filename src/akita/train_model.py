@@ -4,6 +4,7 @@ import pathlib
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.plugins import DDPPlugin
 
 from src.akita.datamodule import AkitaDataModule
 from src.akita.models import LitContactPredictor
@@ -15,8 +16,6 @@ def train_main():
     parser.add_argument('--gpus', type=int, default=-1)
     parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--accumulate_batches', type=int, default=1)
-    parser.add_argument('--val_interval', type=int, default=1000)
     parser = LitContactPredictor.add_model_specific_args(parser)
     args = parser.parse_args()
 
@@ -37,7 +36,7 @@ def train_main():
     # logging
     save_dir = pathlib.Path(__file__).parents[2]
     logger = WandbLogger(project="train_akita_alston", save_dir=str(save_dir), log_model="all")
-    logger.watch(lit_model, log="all", log_freq=args.val_interval, log_graph=True)
+    logger.watch(lit_model, log="all", log_graph=True)
 
     # callbacks
     early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=12)
@@ -52,9 +51,7 @@ def train_main():
         logger=logger,
         log_every_n_steps=1,
         enable_progress_bar=False,
-        accumulate_grad_batches=args.accumulate_batches,
-        val_check_interval=args.val_interval,
-        strategy="ddp"
+        strategy=DDPPlugin(find_unused_parameters=False),
     )
 
     trainer.fit(lit_model, datamodule=datamodule)
