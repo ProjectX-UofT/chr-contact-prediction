@@ -31,10 +31,14 @@ def train_main():
     # construct model
     lit_model = LitContactPredictor(**vars(args))
 
+    # TODO: kind of a hack
+    if torch.cuda.is_available():
+        lit_model.ema.to(device=torch.device("cuda"))
+
     # logging
     save_dir = pathlib.Path(__file__).parents[2]
     logger = WandbLogger(project="train_akita_alston", save_dir=str(save_dir), log_model="all")
-    logger.watch(lit_model, log="all", log_freq=args.val_interval, log_graph=True)
+    logger.watch(lit_model, log="all", log_freq=2000, log_graph=True)
 
     # callbacks
     early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=12)
@@ -49,8 +53,7 @@ def train_main():
         logger=logger,
         log_every_n_steps=1,
         enable_progress_bar=False,
-        accumulate_grad_batches=args.accumulate_batches,
-        val_check_interval=args.val_interval,
+        #accumulate_grad_batches=args.accumulate_batches,
         strategy = DDPPlugin(find_unused_parameters=False)
     )
 
