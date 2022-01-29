@@ -51,7 +51,7 @@ def train_main():
         logger=logger,
         log_every_n_steps=1,
         enable_progress_bar=False,
-        accumulate_grad_batches=args.accumulate_batches,
+        # accumulate_grad_batches=args.accumulate_batches,
         # val_check_interval=args.val_interval
     )
 
