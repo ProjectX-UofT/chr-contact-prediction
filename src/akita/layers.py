@@ -41,17 +41,16 @@ class Conv1dBlock(nn.Module):
 
     def __init__(
             self, in_channels, out_channels, kernel_size,
-            pool_size=1, activation=True, dilation=1, dropout=0.0
+            pool_size=1, activation=True
     ):
         super().__init__()
-        padding = dilation * (kernel_size - 1) // 2  # padding needed to maintain size
+        padding = (kernel_size - 1) // 2  # padding needed to maintain size
 
         layers = [
-            nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation),
-            nn.BatchNorm1d(out_channels, momentum=0.9265)
+            nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding),
+            nn.BatchNorm1d(out_channels, momentum=0.0735)
         ]
-        if dropout > 0.0:
-            layers.append(nn.Dropout(p=dropout))
+
         if pool_size > 1:
             layers.append(nn.MaxPool1d(kernel_size=pool_size))
         if activation:
@@ -61,25 +60,6 @@ class Conv1dBlock(nn.Module):
 
     def forward(self, x):
         return self.block(x)
-
-
-class DilatedConv1DBlock(nn.Module):
-    def __init__(
-            self, in_channels, mid_channels, out_channels, kernel_size,
-            dilation=1, dropout=0.0
-    ):
-        super().__init__()
-
-        self.blocks = nn.Sequential(
-            Conv1dBlock(in_channels, mid_channels, kernel_size, dilation=dilation),
-            Conv1dBlock(mid_channels, out_channels, kernel_size, dropout=dropout, activation=False)
-        )
-
-        self.activation = nn.GELU()
-
-    def forward(self, x):
-        x = x + self.blocks(x)  # residual connection
-        return self.activation(x)
 
 
 class Conv2dBlock(nn.Module):
@@ -94,7 +74,7 @@ class Conv2dBlock(nn.Module):
         # noinspection PyTypeChecker
         layers = [
             nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation),
-            nn.BatchNorm2d(out_channels, momentum=0.9265)
+            nn.BatchNorm2d(out_channels, momentum=0.0735)
         ]
 
         if dropout > 0.0:
@@ -194,6 +174,7 @@ class TransformerEncoder(nn.Module):
         x = x.transpose(1, 2)
         x = self.encoder(self.pos_encoding(x))
         return x.transpose(1, 2)
+
 
 # ==================================================================================================
 # Uncomment for later use

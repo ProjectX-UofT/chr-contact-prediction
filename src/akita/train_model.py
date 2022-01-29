@@ -3,10 +3,14 @@ import pathlib
 
 import pytorch_lightning as pl
 import torch.cuda
+import wandb
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.plugins import DDPPlugin
+
 
 from src.akita.datamodule import AkitaDataModule
 from src.akita.models import LitContactPredictor
+
 
 
 def train_main():
@@ -40,23 +44,25 @@ def train_main():
     # callbacks
     early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=40)
     checkpointing = pl.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=20)
-    stochastic_weighting = pl.callbacks.StochasticWeightAveraging(swa_epoch_start=0.75, annealing_epochs=5, swa_lrs=8e-4)
+    stochastic_weighting = pl.callbacks.StochasticWeightAveraging(swa_epoch_start=0.75, annealing_epochs=5, swa_lrs=4.5e-4)
     lr_monitor = pl.callbacks.LearningRateMonitor("step", True)
 
     # training
     trainer = pl.Trainer(
         callbacks=[early_stopping, checkpointing, stochastic_weighting, lr_monitor],
         deterministic=True,
-        gpus=(1 if torch.cuda.is_available() else 0),
+        gpus=-1,
         gradient_clip_val=10.7,
         logger=logger,
         log_every_n_steps=1,
-        enable_progress_bar=True,
-        accumulate_grad_batches=2,
-        max_epochs=65
+        enable_progress_bar=False,
+        max_epochs=65,
+        strategy = DDPPlugin(find_unused_parameters=False)
     )
 
     trainer.fit(lit_model, datamodule=datamodule)
+
+    wandb.finish()
 
     return lit_model
 
