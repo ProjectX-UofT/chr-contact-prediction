@@ -13,7 +13,7 @@ def train_main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--gpus', type=int, default=-1)
-    parser.add_argument('--batch_size', type=int, default=3)
+    parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--accumulate_batches', type=int, default=1)
     parser.add_argument('--val_interval', type=int, default=1000)
