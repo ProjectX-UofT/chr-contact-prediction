@@ -29,14 +29,9 @@ def train_main():
     # construct model
     lit_model = LitContactPredictor(**vars(args))
 
-    # TODO: kind of a hack
-    if torch.cuda.is_available():
-        lit_model.ema.to(device=torch.device("cuda"))
-
     # logging
     save_dir = pathlib.Path(__file__).parents[2]
     logger = WandbLogger(project="train_akita_alston", save_dir=str(save_dir), log_model="all")
-    logger.watch(lit_model, log="all", log_graph=True)
 
     # callbacks
     early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=12)
