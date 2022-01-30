@@ -46,8 +46,7 @@ def train_main():
         logger=logger,
         log_every_n_steps=1,
         enable_progress_bar=False,
-        strategy=(DDPPlugin(find_unused_parameters=False) if args.gpus > 1 else None),
-        auto_scale_batch_size="binsearch"
+        strategy=(DDPPlugin(find_unused_parameters=False) if args.gpus > 1 else None)
     )
 
     trainer.fit(lit_model, datamodule=datamodule)
