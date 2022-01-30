@@ -58,7 +58,7 @@ def tfr_to_hdf5(split, dummy=False):
 
 
 if __name__ == "__main__":
-    tf.enable_eager_execution()
+    # tf.enable_eager_execution()
 
     debug = False
     tfr_to_hdf5(split="train", dummy=debug)

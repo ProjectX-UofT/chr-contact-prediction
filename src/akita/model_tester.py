@@ -2,12 +2,10 @@ import argparse
 
 import pytorch_lightning as pl
 import torch.cuda
-from pytorch_lightning.loggers import WandbLogger
 import wandb
 
 from src.akita.datamodule import AkitaDataModule
 from src.akita.models import LitContactPredictor, ContactPredictor
-
 
 def test_main():
     parser = argparse.ArgumentParser()
@@ -25,16 +23,16 @@ def test_main():
 
     # wandb checkpoint loading
     run = wandb.init()
-    artifact = run.use_artifact('uoft-project-x/train_akita/model-3pdnly5j:v32', type='model')
+    artifact = run.use_artifact('uoft-project-x/train_akita_jin/model-35i54cj4:v21', type='model')
     artifact_dir = artifact.download()
-    lit_model = LitContactPredictor(
+    lit_model = LitContactPredictor(3, 6, 256, 0.1,
         augment_shift=args.augment_shift,
         augment_rc=args.augment_rc,
         lr=args.lr,
         variational=0
     )
-    test_model = lit_model.load_from_checkpoint(artifact_dir + "\\model.ckpt")
-    test_model.variational = 0
+    # test_model = lit_model.load_from_checkpoint('artifacts/model-35i54cj4:21/model.ckpt')
+    # test_model.variational = 1
 
     # run the model on the test set
     trainer = pl.Trainer(
@@ -44,7 +42,8 @@ def test_main():
         log_every_n_steps=1,
         enable_progress_bar=True
     )
-    trainer.test(test_model, datamodule=datamodule)
+    test_metrics = trainer.test(lit_model, datamodule=datamodule)
+    print(test_metrics)
 
 
 if __name__ == "__main__":

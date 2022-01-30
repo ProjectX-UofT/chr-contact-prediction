@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import metrics
 
 from src.akita.layers import (
     AverageTo2D,
@@ -205,9 +206,13 @@ class LitContactPredictor(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        loss, batch_size = self._process_batch(batch, test=True)
+        loss, pearson_1, pearson_2, pearson_4, pearson_5, batch_size = self._process_batch(batch, test=True)
         self.log('test_loss', loss, batch_size=batch_size)
-        return loss
+        self.log('test_pearson_r_1', pearson_1, batch_size=batch_size)
+        self.log('test_pearson_r_2', pearson_2, batch_size=batch_size)
+        self.log('test_pearson_r_4', pearson_4, batch_size=batch_size)
+        self.log('test_pearson_r_5', pearson_5, batch_size=batch_size)
+        return loss, pearson_1, pearson_2, pearson_4, pearson_5
 
     def configure_optimizers(self):
         optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.975)
@@ -242,7 +247,15 @@ class LitContactPredictor(pl.LightningModule):
                 preds = averaged_preds
 
         loss = F.mse_loss(preds, tgts)
-        if not self.variational or test:
+        pearson_1 = metrics.compute_pearson_r_v1(preds, tgts)
+        pearson_2 = metrics.compute_pearson_r_v2(preds, tgts)
+        # pearson_3 = metrics.compute_pearson_r_v3(preds, tgts)
+        pearson_4 = metrics.compute_pearson_r_v4(preds, tgts)
+        pearson_5 = metrics.compute_pearson_r_v5(preds, tgts)
+
+        if test:
+            return loss, pearson_1, pearson_2, pearson_4, pearson_5, batch_size
+        elif not self.variational:
             return loss, batch_size
 
     def _VAE_loss(self, preds, tgts):
