@@ -70,8 +70,13 @@ def calculate_pearson_r(model, batch, target_idx):
     preds, mu, logvar = model(seqs)
 
     # taking the predictions for the dataset that we want to focus on
-    temp1 = preds[0, :, target_idx]
-    temp2 = tgts[0, :, target_idx]
+    # temp1 = preds[0, :, target_idx]
+    # temp2 = tgts[0, :, target_idx]
+
+    # alternatively - taking the predictions for all five datasets simultaneously
+    temp1 = preds[0, :, :].flatten()
+    temp2 = tgts[0, :, :].flatten()
+
     pearson = PearsonCorrCoef()
     return pearson(temp1, temp2).item()
 
@@ -84,8 +89,13 @@ def calculate_spearman_r(model, batch, target_idx):
     preds, mu, logvar = model(seqs)
 
     # taking the predictions for the dataset that we want to focus on
-    temp1 = preds[0, :, target_idx]
-    temp2 = tgts[0, :, target_idx]
+    # temp1 = preds[0, :, target_idx]
+    # temp2 = tgts[0, :, target_idx]
+
+    # alternatively - taking the predictions for all five datasets simultaneously
+    temp1 = preds[0, :, :].flatten()
+    temp2 = tgts[0, :, :].flatten()
+
     spearman = SpearmanCorrCoef()
     return spearman(temp1, temp2).item()
 
