@@ -16,8 +16,10 @@ from src.akita.layers import (
     DilatedResConv2dBlock,
     VariationalLayer,
     TransformerEncoder,
-    DilatedConv1DBlock
+    # DilatedConv1DBlock
 )
+
+import metrics
 
 
 # =============================================================================
@@ -88,11 +90,11 @@ class Trunk(nn.Module):
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
         modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
         # Akita Replication
-        dilation = 1.0
-        for i in range(8):
-            modules += [DilatedConv1DBlock(96, 48, 96, 1, dilation=round(dilation), dropout=0.4)]
-            dilation *= 1.75
-        # modules += [transformer]
+        # dilation = 1.0
+        # for i in range(8):
+        #     modules += [DilatedConv1DBlock(96, 48, 96, 1, dilation=round(dilation), dropout=0.4)]
+        #     dilation *= 1.75
+        modules += [transformer]
         modules += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
@@ -207,6 +209,16 @@ class LitContactPredictor(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         loss, batch_size = self._process_batch(batch, test=True)
         self.log('test_loss', loss, batch_size=batch_size)
+
+        # create the reverse complement
+        rc_batch = [reverse_complement(batch[0]), batch[1]]
+
+        # logging metrics
+        self.log("mse", metrics.calculate_mse(self, batch))
+        self.log("rc_mse", metrics.calculate_mse(self, rc_batch))
+        self.log("pearson", metrics.calculate_pearson_r(self, batch, 4))
+        self.log("spearman", metrics.calculate_spearman_r(self, batch, 4))
+
         return loss
 
     def configure_optimizers(self):
