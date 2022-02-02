@@ -216,10 +216,11 @@ class LitContactPredictor(pl.LightningModule):
         seqs, tgts = batch
         batch_size = tgts.shape[0]
         preds, mu, logvar = self(seqs)
+        rc_preds, rc_mu, rc_logvar = self(rc_batch[0])
 
         # logging metrics
         self.log("mse", metrics.calculate_mse(self, preds, tgts))
-        self.log("rc_mse", metrics.calculate_mse(self, preds, tgts))
+        self.log("rc_mse", metrics.calculate_mse(self, rc_preds, rc_batch[1]))
         self.log("pearson", metrics.calculate_pearson_r(self, preds, tgts, 4))
         self.log("spearman", metrics.calculate_spearman_r(self, preds, tgts, 4))
 
