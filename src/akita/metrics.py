@@ -16,6 +16,9 @@ def metrics_main():
     model = LitContactPredictor.load_from_checkpoint(ckpt_path)
     datamodule = AkitaDataModule(batch_size=1, num_workers=4)
 
+    model.augment_shift = 0
+    model.augment_rc = False
+
     mses = [list() for _ in range(5)]
     spearmans = [list() for _ in range(5)]
     pearsons = [list() for _ in range(5)]
