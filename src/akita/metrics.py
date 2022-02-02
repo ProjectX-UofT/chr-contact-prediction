@@ -52,22 +52,15 @@ import wandb
 #     return datamodule.train.__getitem__(1)
 
 
-def calculate_mse(model, batch):
-    seqs, tgts = batch
-    batch_size = tgts.shape[0]
-    preds, mu, logvar = model(seqs)
-
+def calculate_mse(model, preds, tgts):
     loss = nn.MSELoss()
     output = loss(preds, tgts)
     return output.item()
 
 
-def calculate_pearson_r(model, batch, target_idx):
+def calculate_pearson_r(model, preds, tgts, target_idx):
     """Calculates Pearson R.
     target_idx is the index of the target dataset (should be an integer from 0 to 4). """
-    seqs, tgts = batch
-    batch_size = tgts.shape[0]
-    preds, mu, logvar = model(seqs)
 
     # taking the predictions for the dataset that we want to focus on
     # temp1 = preds[0, :, target_idx]
@@ -81,12 +74,9 @@ def calculate_pearson_r(model, batch, target_idx):
     return pearson(temp1, temp2).item()
 
 
-def calculate_spearman_r(model, batch, target_idx):
+def calculate_spearman_r(model, preds, tgts, target_idx):
     """Calculates Spearman R.
     target_idx is the index of the target dataset (should be an integer from 0 to 4). """
-    seqs, tgts = batch
-    batch_size = tgts.shape[0]
-    preds, mu, logvar = model(seqs)
 
     # taking the predictions for the dataset that we want to focus on
     # temp1 = preds[0, :, target_idx]

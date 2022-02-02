@@ -207,19 +207,23 @@ class LitContactPredictor(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        loss, batch_size = self._process_batch(batch, test=True)
-        self.log('test_loss', loss, batch_size=batch_size)
+        # loss, batch_size = self._process_batch(batch, test=True)
+        # self.log('test_loss', loss, batch_size=batch_size)
 
         # create the reverse complement
         rc_batch = [reverse_complement(batch[0]), batch[1]]
 
-        # logging metrics
-        self.log("mse", metrics.calculate_mse(self, batch))
-        self.log("rc_mse", metrics.calculate_mse(self, rc_batch))
-        self.log("pearson", metrics.calculate_pearson_r(self, batch, 4))
-        self.log("spearman", metrics.calculate_spearman_r(self, batch, 4))
+        seqs, tgts = batch
+        batch_size = tgts.shape[0]
+        preds, mu, logvar = self(seqs)
 
-        return loss
+        # logging metrics
+        self.log("mse", metrics.calculate_mse(self, preds, tgts))
+        self.log("rc_mse", metrics.calculate_mse(self, preds, tgts))
+        self.log("pearson", metrics.calculate_pearson_r(self, preds, tgts, 4))
+        self.log("spearman", metrics.calculate_spearman_r(self, preds, tgts, 4))
+
+        # return loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.975)
