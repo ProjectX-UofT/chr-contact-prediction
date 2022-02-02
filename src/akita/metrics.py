@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from src.akita.datamodule import AkitaDataModule
 from src.akita.models import LitContactPredictor
+import pandas as pd
 
 
 def metrics_main():
@@ -18,7 +19,9 @@ def metrics_main():
     mses = [list() for _ in range(5)]
     spearmans = [list() for _ in range(5)]
     pearsons = [list() for _ in range(5)]
-    for batch in tqdm(datamodule.test_dataloader(), leave=False, total=32):
+
+    test_loader = datamodule.test_dataloader()
+    for batch in tqdm(test_loader, total=413):
 
         with torch.no_grad():
             with model.ema.average_parameters():
@@ -34,12 +37,14 @@ def metrics_main():
             spearmans[idx].append(stats.spearmanr(y_pred, y_true)[0])
             pearsons[idx].append(stats.pearsonr(y_pred, y_true)[0])
 
-    for idx in range(5):
-        print("Dataset", idx)
-        print("\tMSE", statistics.mean(mses[idx]))
-        print("\tSpearman", statistics.mean(spearmans[idx]))
-        print("\tPearson", statistics.mean(pearsons[idx]))
+    with open("results.txt", "w+") as f:
+        for idx in range(5):
+            f.write(f"Dataset {idx}\n")
+            f.write(f"\tMSE = {statistics.mean(mses[idx])}\n", )
+            f.write(f"\tSpearman = {statistics.mean(spearmans[idx])}\n")
+            f.write(f"\tPearson = {statistics.mean(pearsons[idx])}\n")
 
 
 if __name__ == '__main__':
     metrics_main()
+
