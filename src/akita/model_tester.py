@@ -25,7 +25,7 @@ def test_main():
 
     # wandb checkpoint loading
     run = wandb.init()
-    artifact = run.use_artifact('uoft-project-x/train_akita/model-22gl5iqa:v39', type='model')
+    artifact = run.use_artifact('uoft-project-x/train_akita/model-3pdnly5j:v32', type='model')
     artifact_dir = artifact.download()
     lit_model = LitContactPredictor(
         augment_shift=args.augment_shift,
@@ -34,7 +34,7 @@ def test_main():
         variational=0
     )
     test_model = lit_model.load_from_checkpoint(artifact_dir + "\\model.ckpt")
-    test_model.variational = 1
+    test_model.variational = 0
 
     # run the model on the test set
     trainer = pl.Trainer(

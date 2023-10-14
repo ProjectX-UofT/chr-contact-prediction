@@ -15,8 +15,11 @@ from src.akita.layers import (
     Conv2dBlock,
     DilatedResConv2dBlock,
     VariationalLayer,
-    TransformerEncoder
+    TransformerEncoder,
+    # DilatedConv1DBlock
 )
+
+import metrics
 
 
 # =============================================================================
@@ -86,7 +89,13 @@ class Trunk(nn.Module):
 
         modules = [Conv1dBlock(4, 96, 11, pool_size=2)]
         modules += [Conv1dBlock(96, 96, 5, pool_size=2) for _ in range(10)]
-        modules += [transformer, Conv1dBlock(96, 64, 5)]
+        # Akita Replication
+        # dilation = 1.0
+        # for i in range(8):
+        #     modules += [DilatedConv1DBlock(96, 48, 96, 1, dilation=round(dilation), dropout=0.4)]
+        #     dilation *= 1.75
+        modules += [transformer]
+        modules += [Conv1dBlock(96, 64, 5)]
         self.trunk = nn.Sequential(*modules)
 
     def forward(self, input_seqs):
@@ -171,12 +180,12 @@ class LitContactPredictor(pl.LightningModule):
     def __init__(
             self,
             n_layer, n_head, n_inner, dropout,
-            augment_rc, augment_shift, lr, 
+            augment_rc, augment_shift, lr,
             **kwargs
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
-        
+
         self.model = ContactPredictor(n_layer, n_head, n_inner, dropout, variational=bool(kwargs['variational']))
         self.augment_rc = augment_rc
         self.augment_shift = augment_shift
@@ -198,9 +207,24 @@ class LitContactPredictor(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        loss, batch_size = self._process_batch(batch, test=True)
-        self.log('test_loss', loss, batch_size=batch_size)
-        return loss
+        # loss, batch_size = self._process_batch(batch, test=True)
+        # self.log('test_loss', loss, batch_size=batch_size)
+
+        # create the reverse complement
+        rc_batch = [reverse_complement(batch[0]), batch[1]]
+
+        seqs, tgts = batch
+        batch_size = tgts.shape[0]
+        preds, mu, logvar = self(seqs)
+        rc_preds, rc_mu, rc_logvar = self(rc_batch[0])
+
+        # logging metrics
+        self.log("mse", metrics.calculate_mse(self, preds, tgts))
+        self.log("rc_mse", metrics.calculate_mse(self, rc_preds, rc_batch[1]))
+        self.log("pearson", metrics.calculate_pearson_r(self, preds, tgts, 4))
+        self.log("spearman", metrics.calculate_spearman_r(self, preds, tgts, 4))
+
+        # return loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.975)
